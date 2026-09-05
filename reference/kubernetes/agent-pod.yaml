@@ -42,8 +42,10 @@ spec:
       emptyDir: {}
 
 # Production notes:
+# - keep the baseline one Pod / one agent container unless a concrete threat model requires more isolation;
 # - replace the placeholder image and pin it by digest;
 # - use workload identity only when cloud access is required;
 # - do not mount Docker/container-runtime sockets or hostPath volumes;
 # - prefer a dedicated ServiceAccount with minimum RBAC/IAM;
-# - add an external credential broker for short-lived SCM credentials.
+# - prefer short-lived, repository-scoped SCM credentials and GitHub-side rulesets;
+# - treat credential compromise as a contained failure mode, not as a reason to add privileged sidecars by default.
