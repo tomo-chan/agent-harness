@@ -1,6 +1,8 @@
+[← セキュリティモデル](03-security-model.md) | [English](../04-adoption-guide.md) | [次: 製品マッピング →](05-product-mapping.md)
+
 # 導入ガイド
 
-自律化は段階的に導入します。各段階で exit criteria と観測可能な evidence を定義し、それを満たしてから権限を拡大します。
+自律化は段階的に導入します。各段階で exit criteria と観測可能な evidence を定義し、それを満たしてから権限を拡大します。権限拡大前に[セキュリティモデル](03-security-model.md)を確認してください。
 
 ## Stage 0 — Observe
 
@@ -32,9 +34,11 @@ Exit criteria:
 - CI が authoritative
 - task -> commit -> PR を audit 上で相関できる
 
+リファレンス実装は [`completion_gate.sh`](../../reference/scripts/completion_gate.sh) です。
+
 ## Stage 3 — Unattended Operation
 
-Routine action を allow rule に移し、例外操作には external approval gateway を導入します。Turn / time / tool / cost budget と failure circuit breaker を設定します。
+Routine action を allow rule に移し、例外操作には external approval gateway を導入します。Turn / time / tool / cost budget と failure circuit breaker を設定します。最小構成の分類例は [`policy.example.json`](../../reference/policies/policy.example.json) を参照してください。
 
 Approval 候補:
 - filesystem/network scope の拡張
@@ -50,12 +54,12 @@ Isolation と IAM Control が十分に検証されてから、staging / producti
 ## 推奨実装順序
 
 1. Normalized Action / Policy Schema を定義する
-2. Central Policy Engine と unit test を実装する
-3. Vendor Hook Adapter を追加する
+2. Central [`policy_engine.py`](../../reference/hooks/policy_engine.py) と unit test を実装する
+3. Vendor Hook Adapter を追加する。最小例は [`pre_tool_use_adapter.py`](../../reference/hooks/pre_tool_use_adapter.py)
 4. Static Permissions / Rules を設定する
 5. 利用可能なら fail-closed OS Sandbox を有効化する
-6. Container / Pod を harden する
-7. Default-deny Network Control と egress path を追加する
+6. [`agent-pod.yaml`](../../reference/kubernetes/agent-pod.yaml) を起点に Container / Pod を harden する
+7. [`network-policy.yaml`](../../reference/kubernetes/network-policy.yaml) を参考に Default-deny Network Control と egress path を追加する
 8. Static Credential を Workload Identity / short-lived token に置き換える
 9. Worktree Lifecycle Manager を実装する
 10. Deterministic Completion Gate を実装する
@@ -94,3 +98,7 @@ Policy は code として扱います。
 - budget / circuit breaker による terminate 数
 
 目標は「最大の自律性」ではありません。**境界づけ可能・観測可能・復旧可能な範囲で最大の自律性**を目指します。
+
+---
+
+[← セキュリティモデル](03-security-model.md) | [English](../04-adoption-guide.md) | [次: 製品マッピング →](05-product-mapping.md)
