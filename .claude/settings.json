@@ -1,4 +1,15 @@
 {
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "filesystem": {
+      "denyRead": [
+        "~/.git-credentials",
+        "~/.ssh"
+      ]
+    }
+  },
   "hooks": {
     "PreToolUse": [
       {
