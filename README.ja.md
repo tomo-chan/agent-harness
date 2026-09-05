@@ -30,6 +30,7 @@ flowchart TD
 | レイヤー | 主な責務 |
 |---|---|
 | Instructions / Skills | 望ましい振る舞い、作業手順、設計方針 |
+| Trusted Launcher State | Authoritative な Task Identity と Minimum Posture を供給 |
 | SessionStart Posture Check | 作業開始前に Repository / Security Configuration Drift を検出 |
 | Hooks / Policy Engine | Semantic / Lifecycle Policy |
 | Permissions / Rules | Command / Tool / Path の静的分類 |
@@ -42,13 +43,26 @@ flowchart TD
 
 ## Repository Posture State
 
-`SessionStart` で Repository Identity と GitHub-side control（Required PR、Force Push Prevention、Required Status Checks 等）を確認します。各 Check は `pass` / `fail` / `unknown`、Session は次の3状態です。
+`SessionStart` で実際の Repository を Trusted Launcher State と照合し、GitHub-side Control（Required PR、Force Push Prevention、Required Status Checks 等）を確認します。各 Check は `pass` / `fail` / `unknown`、Session は次の3状態です。
 
 - `READY` — 通常 Policy を適用
-- `RESTRICTED` — local development は許可するが remote SCM mutation は deny
-- `BLOCKED` — mutation を deny
+- `RESTRICTED` — Local Development は許可するが Remote SCM Mutation は deny
+- `BLOCKED` — Mutation を deny
 
-`.agent-harness/security.json` がない場合は built-in `restricted` default を利用します。明示的な設定が invalid な場合は `BLOCKED` です。`git push` や `gh pr create` の直前には cache が stale なら Posture を再確認します。
+Trusted Launcher は `AGENT_HARNESS_EXPECTED_REPOSITORY=owner/repository` を設定します。未設定の場合 Repository Identity は `UNKNOWN` となり、Default Minimum の `restricted` により Remote Publish は許可されません。Repository-local の `mode: warn` だけではこの Minimum を弱められず、Interactive 用に弱める場合だけ Trusted Launcher が `AGENT_HARNESS_MINIMUM_POSTURE_MODE` を明示的に変更します。
+
+`.agent-harness/security.json` がない場合は built-in `restricted` default を利用します。明示的な設定が invalid な場合は `BLOCKED` です。Remote Trust Boundary を越える前には Cache が stale なら Posture を再確認します。
+
+## Canonical Autonomous Publication
+
+Arbitrary Shell / Refspec の解釈を避けるため、Autonomous な Git Publish は次の2形式に限定します。
+
+```bash
+git push
+git push --set-upstream origin HEAD
+```
+
+その後 Semantic Validator が `READY` Posture、Checked Repository、Current Non-default Branch、`origin`、Expected Upstream を確認します。Arbitrary Remote、Destination Refspec、Tag、Delete / Force、Config Override は Autonomous Allowlist 外です。`gh pr create` では Repository / Head Branch / Base Branch の Override を禁止します。`&&`、Pipe、Redirection、Newline、Command Substitution 等の Compound Shell Syntax も Autonomous Allowlist 外です。
 
 ## 標準的な自律実行フロー
 
@@ -65,9 +79,9 @@ flowchart LR
     Q --> G[Policy / Completion Gate]
     G --> C[Commit]
     C --> U{Posture READY?}
-    U -->|yes| PU[Feature Branch Push]
+    U -->|yes| PU[Canonical Push]
     U -->|no| RS[Local に留める / Remediation]
-    PU --> PR[PR 作成]
+    PU --> PR[Repo / Head / Base Override なしで PR 作成]
     PR --> CI[CI / Review]
     CI --> M[Protected Server-side Merge]
 ```
@@ -83,7 +97,8 @@ flowchart LR
 - [実装 Decision Log](docs/ja/decision-log.md) ([English](docs/decision-log.md))
 - [DL-011: Sandbox-first Credential Exposure Reduction](docs/ja/decisions/DL-011-sandbox-first-credential-isolation.md)
 - [DL-012: SessionStart Repository Posture](docs/ja/decisions/DL-012-sessionstart-repository-posture.md)
-- [`reference/harness/`](reference/harness/) — Vendor Adapter
+- [DL-013: Canonical SCM Publication](docs/ja/decisions/DL-013-canonical-scm-publication.md)
+- [`reference/harness/`](reference/harness/) — Vendor Adapter / Semantic Publish Validation
 - [`reference/posture/`](reference/posture/) — Repository Posture Checker / Cache
 - [`policy.example.json`](reference/policies/policy.example.json) — Semantic Policy
 - [`repository-security.example.json`](reference/policies/repository-security.example.json) — Repository Posture Profile
