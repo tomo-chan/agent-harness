@@ -6,6 +6,20 @@ Claude Code / OpenAI Codex / Devin CLI などの自律型ソフトウェア開�
 
 中心的な考え方は **LLM 自体を Security Boundary として扱わない**ことです。自律実行は、Lifecycle Policy、Repository Posture Check、OS Sandbox、Workload Isolation、外部 IAM / SCM Authority、Server-side Repository Rule、Machine-verifiable Completion Gate によって独立して制約します。
 
+## 2つの Architecture Layer
+
+この Repository では、再利用可能な **Harness Layer** と、その上で動く **Application Layer** を分離します。
+
+```mermaid
+flowchart TB
+    APP[Application Layer<br/>Principles / Architecture Contract / Deterministic Gates] --> H[Harness Layer<br/>Hooks / Posture / Sandbox / IAM / SCM / Completion]
+    H --> EXT[GitHub / Cloud / External Systems]
+```
+
+Harness Layer は Execution / Authority を制約します。Application Layer は個別 Application 固有の Invariant を定義し、Machine-verifiable なものを Required Deterministic Gate に変換します。Human / LLM Architecture Review は Missing Invariant の発見や Policy 改善には利用できますが、Authoritative な pass / fail Mechanism にはしません。
+
+詳細は [Application Architecture](docs/ja/07-application-architecture.md) と [Application Design Principles](docs/ja/08-application-design-principles.md) を参照してください。
+
 ## 基本アーキテクチャ
 
 ```mermaid
@@ -64,6 +78,16 @@ git push --set-upstream origin HEAD
 
 その後 Semantic Validator が `READY` Posture、Checked Repository、Current Non-default Branch、`origin`、Expected Upstream を確認します。Arbitrary Remote、Destination Refspec、Tag、Delete / Force、Config Override は Autonomous Allowlist 外です。`gh pr create` では Repository / Head Branch / Base Branch の Override を禁止します。`&&`、Pipe、Redirection、Newline、Command Substitution 等の Compound Shell Syntax も Autonomous Allowlist 外です。
 
+## Deterministic Application Architecture Gate
+
+Application は `.agent-harness/application-architecture.json` に Machine-verifiable Invariant を宣言します。Reference Gate は次で実行します。
+
+```bash
+python reference/application_gate/gate.py
+```
+
+Contract は Versioning し、Failure は fail-closed、Waiver は Explicit / Owned / Reasoned / Expiring とします。Authoritative Instance は Agent Review ではなく Required CI での実行を想定します。
+
 ## 標準的な自律実行フロー
 
 ```mermaid
@@ -76,13 +100,14 @@ flowchart LR
     B --> P[Plan]
     P --> E[Edit]
     E --> Q[Test / Lint / Type-check]
-    Q --> G[Policy / Completion Gate]
+    Q --> AG[Application Architecture Gate]
+    AG --> G[Policy / Completion Gate]
     G --> C[Commit]
     C --> U{Posture READY?}
     U -->|yes| PU[Canonical Push]
     U -->|no| RS[Local に留める / Remediation]
     PU --> PR[Repo / Head / Base Override なしで PR 作成]
-    PR --> CI[CI / Review]
+    PR --> CI[Required CI Gates / Review]
     CI --> M[Protected Server-side Merge]
 ```
 
@@ -94,16 +119,14 @@ flowchart LR
 - [導入ガイド](docs/ja/04-adoption-guide.md) ([English](docs/04-adoption-guide.md))
 - [製品マッピング](docs/ja/05-product-mapping.md) ([English](docs/05-product-mapping.md))
 - [Vendor Harness 実装](docs/ja/06-vendor-harnesses.md) ([English](docs/06-vendor-harnesses.md))
+- [Application Architecture](docs/ja/07-application-architecture.md) ([English](docs/07-application-architecture.md))
+- [Application Design Principles](docs/ja/08-application-design-principles.md) ([English](docs/08-application-design-principles.md))
 - [実装 Decision Log](docs/ja/decision-log.md) ([English](docs/decision-log.md))
-- [DL-011: Sandbox-first Credential Exposure Reduction](docs/ja/decisions/DL-011-sandbox-first-credential-isolation.md)
-- [DL-012: SessionStart Repository Posture](docs/ja/decisions/DL-012-sessionstart-repository-posture.md)
-- [DL-013: Canonical SCM Publication](docs/ja/decisions/DL-013-canonical-scm-publication.md)
+- [DL-014: Deterministic Application Architecture Contracts](docs/ja/decisions/DL-014-application-architecture-contracts.md)
+- [`reference/application_gate/`](reference/application_gate/) — Deterministic Application Architecture Gate
+- [`.agent-harness/application-architecture.json`](.agent-harness/application-architecture.json) — Application Architecture Contract
 - [`reference/harness/`](reference/harness/) — Vendor Adapter / Semantic Publish Validation
 - [`reference/posture/`](reference/posture/) — Repository Posture Checker / Cache
-- [`policy.example.json`](reference/policies/policy.example.json) — Semantic Policy
-- [`repository-security.example.json`](reference/policies/repository-security.example.json) — Repository Posture Profile
-- [`preflight.py`](reference/launcher/preflight.py) — Launcher / CI 向け Preflight
-- [`agent-pod.yaml`](reference/kubernetes/agent-pod.yaml) — 1 Container の Hardened Pod Baseline
 
 ## Credential の責務分離
 
@@ -111,4 +134,4 @@ Baseline では Credential を隠すだけの目的で SCM Broker / Sidecar を�
 
 ## 基本原則
 
-> 安全な操作は自律実行しやすくし、危険な環境は早期検出し、重要な Authority Boundary は Model と Credential の双方から独立させる。
+> 安全な操作は自律実行しやすくし、危険な環境は早期検出し、重要な Application Principle は Deterministic Gate に変換し、重要な Authority Boundary は Model Judgment から独立させる。
