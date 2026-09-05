@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: agent-with-scm-broker
+  labels:
+    app: agent-worker
+spec:
+  automountServiceAccountToken: false
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: agent
+      image: example.invalid/agent-harness:latest
+      env:
+        - name: PATH
+          value: /workspace/agent-harness/reference/shims:/usr/local/bin:/usr/bin:/bin
+        - name: AGENT_HARNESS_SCM_SOCKET
+          value: /run/agent-harness/scm.sock
+      securityContext:
+        allowPrivilegeEscalation: false
+        privileged: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        - name: broker-socket
+          mountPath: /run/agent-harness
+        - name: tmp
+          mountPath: /tmp
+      # The agent container intentionally has no GitHub Secret, token, key,
+      # gh hosts.yml, or git credential file mounted into it.
+
+    - name: scm-broker
+      image: example.invalid/agent-harness:latest
+      command: ["python3", "/workspace/agent-harness/reference/scm_broker/server.py"]
+      env:
+        - name: SCM_BROKER_SOCKET
+          value: /run/agent-harness/scm.sock
+        - name: SCM_BROKER_WORKSPACE_ROOT
+          value: /workspace
+        - name: SCM_BROKER_REPOSITORY
+          value: owner/repository
+        - name: SCM_BROKER_GH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: scm-broker-github
+              key: token
+      securityContext:
+        allowPrivilegeEscalation: false
+        privileged: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        runAsUser: 10002
+        runAsGroup: 10002
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        - name: broker-socket
+          mountPath: /run/agent-harness
+        - name: broker-tmp
+          mountPath: /tmp
+
+  volumes:
+    - name: workspace
+      emptyDir: {}
+    - name: broker-socket
+      emptyDir: {}
+    - name: tmp
+      emptyDir: {}
+    - name: broker-tmp
+      emptyDir: {}
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: scm-broker-github
+stringData:
+  # Example only. Production should issue a short-lived GitHub App installation
+  # token through a trusted credential provider rather than storing a long-lived PAT.
+  token: REPLACE_WITH_SHORT_LIVED_INSTALLATION_TOKEN
