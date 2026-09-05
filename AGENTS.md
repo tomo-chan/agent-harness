@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository defines a vendor-neutral reference architecture and implementation for secure autonomous software-engineering agents. Preserve the central security model: the LLM is not a security boundary. Trusted task identity, repository posture checks, policy, sandboxing, workload isolation, IAM/SCM authorization, server-side rules and deterministic completion checks remain independent layers.
+This repository defines a vendor-neutral reference architecture and implementation for secure autonomous software-engineering agents, plus an Application Layer that turns application-specific architecture principles into deterministic, machine-verifiable gates. Preserve the central security model: the LLM is not a security boundary, and non-deterministic review is not an authoritative merge/release gate.
 
 ## Read first
 
@@ -15,12 +15,12 @@ Before making non-trivial changes, read:
 5. [Adoption Guide](docs/04-adoption-guide.md) ([日本語](docs/ja/04-adoption-guide.md))
 6. [Product Mapping](docs/05-product-mapping.md) ([日本語](docs/ja/05-product-mapping.md))
 7. [Vendor Harnesses](docs/06-vendor-harnesses.md) ([日本語](docs/ja/06-vendor-harnesses.md))
-8. [Implementation Decision Log](docs/decision-log.md) ([日本語](docs/ja/decision-log.md))
-9. [DL-011: Sandbox-first credential exposure reduction](docs/decisions/DL-011-sandbox-first-credential-isolation.md)
-10. [DL-012: SessionStart repository posture](docs/decisions/DL-012-sessionstart-repository-posture.md)
-11. [DL-013: Canonical SCM publication](docs/decisions/DL-013-canonical-scm-publication.md)
+8. [Application Architecture](docs/07-application-architecture.md) ([日本語](docs/ja/07-application-architecture.md))
+9. [Application Design Principles](docs/08-application-design-principles.md) ([日本語](docs/ja/08-application-design-principles.md))
+10. [Implementation Decision Log](docs/decision-log.md) ([日本語](docs/ja/decision-log.md))
+11. [DL-014: Deterministic application architecture contracts](docs/decisions/DL-014-application-architecture-contracts.md)
 
-## Core invariants
+## Core harness invariants
 
 Do not weaken these invariants without an explicit architectural decision:
 
@@ -29,118 +29,95 @@ Do not weaken these invariants without an explicit architectural decision:
 - Trusted launcher/orchestrator state establishes expected repository identity; repository-local config cannot authoritatively redefine task identity.
 - Missing trusted repository identity is `UNKNOWN`; repository mismatch is `BLOCKED`.
 - Repository-local posture mode cannot weaken the trusted minimum posture mode; the default minimum is `restricted`.
-- Repository security posture is checked at SessionStart and revalidated before stale remote trust-boundary operations or after repository-root changes.
-- `pass`, `fail`, and `unknown` are distinct posture results; unavailable metadata must not silently become `pass`.
-- Missing posture configuration uses built-in `restricted` defaults; invalid explicit policy fails closed to `BLOCKED`.
 - `RESTRICTED` preserves local development but denies remote SCM mutation; `BLOCKED` denies mutation.
 - Autonomous remote publication uses canonical command shapes and semantic validation, not arbitrary shell/refspec parsing.
 - Compound shell syntax is outside the autonomous allowlist even when its first command is read-only.
-- The OS sandbox reduces filesystem/process/network capability and credential exposure independently of model behavior.
-- Container/Pod isolation protects the host and resources independently of the agent sandbox.
-- Default deployment is one Pod / one agent container; do not add broker/sidecar/shim infrastructure without a concrete threat model and Decision Log entry.
-- IAM, SCM rulesets, branch protection, and server-side authorization are authoritative for external systems.
-- Autonomous agents use least-privilege, preferably short-lived and repository-scoped credentials.
+- Sandbox, container/Pod isolation, IAM/SCM authorization and server-side rules remain independent enforcement layers.
+- Default deployment is one Pod / one agent container unless a concrete threat model justifies more components.
 - Credential compromise is considered possible; compromise must not imply unrestricted repository or organization authority.
-- Direct mutation of protected/default branches must not be part of the normal autonomous path.
-- Production-impacting operations require an explicitly designed authorization path.
-- MCP and other external tools are part of the security boundary and require server-side authorization.
 - Completion is determined by machine-verifiable predicates, not by model claims.
-- Autonomous loops must have bounded retries, time, tool calls, and/or cost.
+- Autonomous loops must have bounded retries, time, tool calls and/or cost.
+
+## Application-layer invariants
+
+- Keep Application Layer policy distinct from Harness Layer security/capability policy.
+- A written architecture principle is not enforced until it has a deterministic predicate over reproducible evidence.
+- LLM/human architecture reviews may discover risks, propose invariants, explain failures or propose waivers; they do not produce authoritative gate pass/fail.
+- Architecture contracts, gate implementation, evidence collectors, CI wiring and waivers are control-plane artifacts.
+- Gate configuration/evaluator errors fail closed.
+- Waivers are explicit, scoped to a check, owned, reasoned and expiring.
+- Prefer structured evidence such as dependency graphs, schemas and test reports over text heuristics when such evidence exists.
+- Required CI is the authoritative merge-time architecture gate; local execution is fast feedback.
+- Keep gates composable by invariant class rather than building one monolithic universal checker.
 
 ## Architecture conventions
 
-Keep vendor-specific behavior behind adapters. The preferred flow is:
-
 ```mermaid
-flowchart LR
-    TL[Trusted launcher state] --> RP[Repository Posture]
-    SS[SessionStart] --> RP
-    V[Vendor PreToolUse] --> A1[Vendor Adapter]
-    A1 --> N[Normalized Action]
-    N --> P[Policy Engine]
-    RP --> P
-    P --> D{Decision}
-    D -->|allow publish| SV[SCM Semantic Validator]
-    D -->|allow local| A2[Vendor Adapter]
-    D -->|ask| A2
-    D -->|deny| A2
-    SV --> A2
-    A2 --> R[Vendor-specific response]
+flowchart TB
+    subgraph APP[Application Layer]
+        AP[Application Principles] --> AC[Architecture Contract]
+        EV[Deterministic Evidence] --> AG[Architecture Gate]
+        AC --> AG
+        AG --> CI[Required CI / Release Decision]
+    end
+
+    subgraph H[Harness Layer]
+        TL[Trusted Launcher State] --> RP[Repository Posture]
+        RP --> P[Policy Engine]
+        P --> SV[SCM Semantic Validator]
+        SV --> SB[Sandbox / Runtime]
+        SB --> IAM[IAM / SCM / Server Rules]
+    end
+
+    APP --> H
 ```
 
-Do not put vendor-specific semantics into the central policy engine unless they represent a genuinely vendor-neutral concept. Keep authoritative task state outside model context.
+Do not put vendor-specific semantics into the central policy engine unless they represent a genuinely vendor-neutral concept. Keep authoritative task state and gate evidence outside model context.
 
 ## Repository structure
 
-- [`docs/`](docs/) — English architecture/design/security/adoption documentation
+- [`docs/`](docs/) — English architecture/design/security/application documentation
 - [`docs/ja/`](docs/ja/) — Japanese counterparts
 - [`docs/decisions/`](docs/decisions/) — detailed implementation decisions
-- [`reference/hooks/`](reference/hooks/) — policy engine
-- [`reference/harness/`](reference/harness/) — runnable vendor adapters and SCM semantic validation
-- [`reference/posture/`](reference/posture/) — repository security posture checker and state cache
+- [`reference/hooks/`](reference/hooks/) — harness policy engine
+- [`reference/harness/`](reference/harness/) — vendor adapters and SCM semantic validation
+- [`reference/posture/`](reference/posture/) — repository posture checker and state cache
+- [`reference/application_gate/`](reference/application_gate/) — deterministic Application Architecture Gate
+- [`.agent-harness/application-architecture.json`](.agent-harness/application-architecture.json) — versioned Application Architecture Contract
 - [`reference/policies/`](reference/policies/) — semantic and repository-security policy examples
 - [`reference/launcher/`](reference/launcher/) — optional preflight utilities
 - [`reference/scripts/`](reference/scripts/) — deterministic lifecycle/completion utilities
-- [`reference/kubernetes/`](reference/kubernetes/) — simple workload/network isolation examples
+- [`reference/kubernetes/`](reference/kubernetes/) — workload/network isolation examples
 
 When changing an English architecture document, update the corresponding Japanese document in the same change where practical.
 
 ## Development rules
 
 - Prefer Python standard library for the small reference implementation unless an external dependency has clear architectural value.
-- Keep policy and posture decisions deterministic and testable.
+- Keep policy, posture and architecture-gate decisions deterministic and testable.
 - Prefer structured data over parsing free-form model prose.
 - If a required operation can be expressed as a narrow canonical command/argv contract, prefer that over increasingly complex shell regex parsing.
-- Treat `&&`, `||`, `;`, pipes, redirection, newlines and command substitution as outside autonomous command allowlists unless a dedicated parser/validator explicitly owns the semantics.
-- Autonomous Git publication is limited to `git push` and `git push --set-upstream origin HEAD`; validate repository, current branch, default branch, `origin` and upstream before allowing it.
-- Autonomous `gh pr create` must not override repository, head branch or base branch.
 - Deny rules take precedence over ask/allow rules.
-- Security-critical errors fail closed wherever the runtime permits it.
-- Never embed real secrets, tokens, account identifiers, private endpoints, or production credentials in examples/tests.
-- Deny obvious credential extraction (`gh auth token`, direct reads of known credential stores) as defense in depth, but rely on IAM/SCM scope and server-side rules for compromise containment.
-- Keep Kubernetes examples non-privileged and avoid `hostPath`, host networking, runtime sockets, and unnecessary extra containers.
-- Do not introduce a generic privileged shell/MCP/SCM proxy as a shortcut around policy.
-- Protect `.agent-harness/`, vendor hook config, harness, posture, policy and CI files as control-plane artifacts.
+- Security-critical and gate-infrastructure errors fail closed wherever the runtime permits it.
+- Never embed real secrets, tokens, account identifiers, private endpoints or production credentials in examples/tests.
+- Protect `.agent-harness/`, vendor hook config, harness, posture, application gate, policy and CI files as control-plane artifacts.
+- Do not add a non-deterministic check type such as `llm_review` to the deterministic architecture gate.
 
 ## Testing
 
-For harness changes, run:
+For changes, run:
 
 ```bash
-python -m pytest reference/hooks/tests reference/harness/tests reference/posture/tests -q
+python -m pytest reference/hooks/tests reference/harness/tests reference/posture/tests reference/application_gate/tests -q
+python reference/application_gate/gate.py
 ```
 
-Preserve regression coverage for safe read-only Git, force-push denial, approval-required actions, credential extraction denial, control-plane file protection, repository posture state derivation, missing/mismatched trusted repository identity, repository-local mode not weakening trusted minimum, `RESTRICTED` remote-mutation denial, `BLOCKED` mutation denial, compound-shell bypass attempts, non-canonical push/refspec rejection, default-branch push rejection, origin/upstream mismatch and PR repository/head/base override rejection.
+Preserve regression coverage for harness security invariants and for architecture-gate config validation, path escape prevention, deterministic pass/fail, explicit waivers, waiver expiry and rejection of unsupported/non-deterministic check types.
 
 ## Decision log requirement
 
-Record decisions in [Implementation Decision Log](docs/decision-log.md) or a focused record under [`docs/decisions/`](docs/decisions/). Add/update a decision whenever a change selects an architectural alternative, works around a vendor limitation, changes a trust boundary/failure mode/approval path/security invariant, or may be simplified after a future tool upgrade.
-
-For temporary/vendor-dependent choices, record the limitation, workaround, and revisit trigger. Do not silently erase history; mark superseded decisions or explain the replaced default.
-
-## Documentation expectations
-
-Distinguish trusted task identity, repository posture detection, behavioral guidance, semantic policy, static permissions, SCM semantic validation, OS capability isolation, workload isolation, IAM/SCM containment, server-side enforcement, and observability. Do not describe a prompt, hook, deny-list, sandbox, or credential secrecy assumption as a complete security control when a lower-level authority boundary is required.
-
-Product-specific claims change over time. Verify upstream documentation before changing hook schemas, SessionStart behavior, sandbox/network behavior, permission semantics, or credential-masking guidance.
-
-## Git workflow
-
-```mermaid
-flowchart LR
-    I[Inspect] --> W[Feature branch / worktree]
-    W --> M[Implement]
-    M --> T[Test]
-    T --> V[Verify]
-    V --> C[Commit]
-    C --> P[Posture READY?]
-    P -->|yes| U[Canonical push]
-    U --> R[Pull Request]
-    P -->|no| L[Remain local / remediate]
-```
-
-Do not force-push or directly push to a protected default branch. Do not merge a PR unless the task explicitly authorizes merge and repository policy permits it.
+Record decisions in [Implementation Decision Log](docs/decision-log.md) or under [`docs/decisions/`](docs/decisions/). Add/update a decision whenever a change selects an architecture alternative, changes a trust boundary/failure/approval/security invariant, or changes how an Application Principle becomes an enforced deterministic gate.
 
 ## Definition of done
 
-A change is complete only when implementation/documentation matches scope, relevant tests pass, security invariants remain intact, English/Japanese docs are synchronized where applicable, Git state contains only intended changes, no credentials/sensitive artifacts were introduced, and vendor-sensitive decisions have assumptions/revisit triggers documented.
+A change is complete only when implementation/documentation matches scope, relevant tests pass, the deterministic Application Architecture Gate passes where applicable, security invariants remain intact, English/Japanese docs are synchronized where applicable, no credentials/sensitive artifacts were introduced, and policy/architecture decisions are documented.
