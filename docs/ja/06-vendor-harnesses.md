@@ -2,109 +2,93 @@
 
 # Vendor 別 Harness 実装
 
-このリポジトリには Claude Code、OpenAI Codex、Devin CLI 向けの project-local Harness を実装しています。3 製品とも Tool Call を共通の deny-first Policy Engine に入力し、その判定を各製品固有の Hook Response に変換します。
+このリポジトリには Claude Code、OpenAI Codex、Devin CLI 向けの project-local Harness を実装しています。3 製品とも共通の deny-first Policy Engine、Repository Posture Checker、Deterministic Completion Gate を利用します。
 
 ```mermaid
 flowchart LR
-    A[Vendor PreToolUse] --> B[Vendor Adapter]
-    B --> C[Normalized Action]
-    C --> D[Policy Engine]
-    D -->|allow| E[Vendor allow]
-    D -->|deny| F[Vendor deny / block]
-    D -->|ask| G{Vendor}
-    G -->|Claude| H[native ask]
-    G -->|Codex / Devin| I[fail-closed block]
-    J[External Approval] --> K[AGENT_HARNESS_APPROVED_RULES]
-    K --> D
+    SS[SessionStart] --> RP[Repository Posture Checker]
+    RP --> ST[READY / RESTRICTED / BLOCKED]
+    PT[PreToolUse] --> N[Normalized Action]
+    N --> P[Policy Engine]
+    ST --> P
+    P -->|allow| A[Vendor allow]
+    P -->|ask| Q[Approval Path]
+    P -->|deny| D[Vendor deny / block]
+    A --> S[Vendor Sandbox]
+    S --> T[git / gh / tools]
+    T --> GH[GitHub]
+    GH --> IAM[SCM IAM / GitHub App Scope]
+    GH --> R[Rulesets / Branch Protection]
 ```
 
 ## 実装ファイル
 
-- [`.claude/settings.json`](../../.claude/settings.json) — Claude Code Hook + strict sandbox baseline
-- [`reference/claude/managed-settings.example.json`](../../reference/claude/managed-settings.example.json) — trusted Claude credential masking 例
-- [`.codex/hooks.json`](../../.codex/hooks.json) — Codex Hook
-- [`reference/codex/config.example.toml`](../../reference/codex/config.example.toml) — spawned-command network を無効化した Codex profile
-- [`.devin/hooks.v1.json`](../../.devin/hooks.v1.json) — Devin CLI Hook
-- [`.devin/config.json`](../../.devin/config.json) — Credential path deny を含む Devin Permissions
+- [`.claude/settings.json`](../../.claude/settings.json) — Claude Code SessionStart / PreToolUse / Stop Hook と Sandbox baseline
+- [`.codex/hooks.json`](../../.codex/hooks.json) — Codex SessionStart / PreToolUse / Stop Hook
+- [`.devin/hooks.v1.json`](../../.devin/hooks.v1.json) — Devin CLI SessionStart / PreToolUse / Stop Hook
+- [`.devin/config.json`](../../.devin/config.json) — Devin CLI static permissions
 - [`reference/harness/`](../../reference/harness/) — Vendor Adapter
-- [`reference/scm_broker/`](../../reference/scm_broker/) — native credential masking が不足する Vendor 向け fallback broker
-- [`reference/shims/git`](../../reference/shims/git) / [`reference/shims/gh`](../../reference/shims/gh) — Agent-facing shim
-- [`reference/kubernetes/agent-with-scm-broker.yaml`](../../reference/kubernetes/agent-with-scm-broker.yaml) — Broker sidecar 例
-- [`policy_engine.py`](../../reference/hooks/policy_engine.py) — 共通 Policy Engine
+- [`reference/posture/checker.py`](../../reference/posture/checker.py) — GitHub Repository Security Posture Checker
+- [`reference/policies/repository-security.example.json`](../../reference/policies/repository-security.example.json) — Posture Policy 例
+- [`reference/policies/policy.example.json`](../../reference/policies/policy.example.json) — Semantic Action Policy
+- [`reference/launcher/preflight.py`](../../reference/launcher/preflight.py) — Launcher / CI 向け明示的 Preflight
+- [`reference/kubernetes/agent-pod.yaml`](../../reference/kubernetes/agent-pod.yaml) — 1 Pod / 1 Container baseline
 
-## Credential Isolation: Sandbox-first
+## Deployment をシンプルに保つ
 
-Credential Confidentiality は [DL-011](decisions/DL-011-sandbox-first-credential-isolation.md) に従い、**まず Vendor Sandbox の native mediation を使い、不足する場合だけ Broker を導入**します。
+Default Architecture は **1 Pod / 1 Agent Container** とします。SCM Broker、Sidecar、`git` shim、`gh` shim は baseline に含めません。これらは socket、process、deployment state、privileged trust boundary を追加し、別の Failure Mode を増やすためです。
 
-```mermaid
-flowchart LR
-    A[Agent] --> S[Vendor Sandbox]
-    S -->|local git| W[Worktree]
-    S --> M{Native credential masking?}
-    M -->|Claude Code: yes| P[Sandbox credential proxy]
-    M -->|Codex / Devin: no| B[SCM Broker fallback]
-    P --> GH[GitHub]
-    B --> GH
-    C[Real credential] --> P
-    C2[Real credential] --> B
-    A -. credential read 不可 .-> C
-    A -. credential read 不可 .-> C2
+Credential Exposure は Sandbox / Policy で低減しますが、Credential Compromise 自体は起こり得る Failure Mode として扱います。Blast Radius は short-lived / repository-scoped credential、least-privilege GitHub App / IAM、GitHub-side Ruleset で独立して制限します。詳細は [DL-011](decisions/DL-011-sandbox-first-credential-isolation.md) を参照してください。
+
+## SessionStart で Repository Posture を確認する
+
+各 Vendor の `SessionStart` で共通 Checker を実行します。Checker は現在の Repository を特定し、read-only の `gh api` で GitHub metadata / ruleset を確認します。各要件は `pass` / `fail` / `unknown` に正規化し、Session State を次の3つに分類します。
+
+- `READY` — 必須 Control を確認済み、または `warn` profile で warning を許容
+- `RESTRICTED` — local development は継続可だが remote SCM mutation は deny
+- `BLOCKED` — mutation を deny
+
+`.agent-harness/security.json` がない場合は built-in `restricted` default を利用します。明示的な Policy が invalid な場合は `BLOCKED` です。GitHub plan / API capability や metadata permission の制約を confirmed insecure と誤認しないよう、`UNKNOWN` は `FAIL` と区別します。
+
+Posture Result は session 単位で cache します。`git push` や `gh pr create` など trust-boundary crossing operation の前に cache TTL が切れていれば `PreToolUse` で再検証します。詳細は [DL-012](decisions/DL-012-sessionstart-repository-posture.md) を参照してください。
+
+Agent 起動前に fail-fast したい launcher / CI では次を実行できます。
+
+```bash
+python reference/launcher/preflight.py --require-ready
 ```
+
+## Vendor ごとの補足
 
 ### Claude Code
 
-現行 Claude Code は Sandbox Credential Masking を提供します。Trusted user / managed settings で `GH_TOKEN` / `GITHUB_TOKEN` や `~/.config/gh/hosts.yml` 内 token を sentinel に置き換え、許可した GitHub host への通信時だけ Sandbox Proxy が real value を注入します。Repository-local `.claude/settings.json` は strict sandbox startup を有効化し、unsandboxed fallback を禁止します。
-
-Credential `mask` は repository-local settings ではなく trusted user / managed settings に配置する必要があるため、`reference/claude/managed-settings.example.json` として分離しています。
+Native SessionStart / PreToolUse Hook と Sandbox を利用します。既知の credential file read と unsandboxed fallback は対応範囲で deny します。Native Credential Masking が利用できる deployment では additional hardening として使用しますが、最終 SCM Authority Boundary にはしません。
 
 ### Codex
 
-現行 Codex は OS-level workspace / network sandbox を提供しますが、Claude Code と同等の credential masking はありません。そのため Agent Container に GitHub token / credential file を配置せず、spawned-command network を無効化し、GitHub remote operation だけを SCM Broker socket に委譲します。`git status` / `diff` / `add` / `commit` など local Git 操作は通常通り worktree 内で実行します。
+Project Hook と Codex Sandbox / Workspace Control を利用します。現時点では PreToolUse `ask` の runtime enforcement が十分でないため、中央 Policy の `ask` は deny に mapping する既存方針を維持します。Repository Posture と GitHub-side Control はこの Vendor 制約とは独立しています。
 
 ### Devin CLI
 
-Devin Sandbox は `Read(...)` deny rule により Credential Path をセッション全体で不可視化できます。ただし Credential File を隠すと native `gh` も利用できず、Claude 型の masking/injection がないため remote operation は Broker fallback を利用します。Sandbox startup の fail-closed 性は Security Invariant の一部です。
-
-### Broker Boundary
-
-Broker は generic shell / generic GitHub API proxy ではありません。公開するのは `git push/fetch/pull/clone` と `gh pr create/view/status/checks` のみです。`gh auth`、generic `gh api`、Git credential operation、arbitrary shell、workspace escape は拒否します。また `.git/config` の remote URL を信用せず、Broker 自身が canonical GitHub repository URL を構築します。
-
-Token は Broker container/process にのみ存在し、Agent container には Token、`gh` credential file、Git credential store、GitHub SSH private key を mount しません。
+Lifecycle Hook、Static Permissions、Devin Sandbox を利用します。Broker を標準導入せず native `git` / `gh` を維持します。SessionStart は Posture Context / Cache、PreToolUse は Semantic Action の Enforcement Point とします。
 
 ## Worktree 対応
 
-Hook command は `git rev-parse --show-toplevel` から現在の repository root を解決します。固定 checkout path を持たないため、control checkout から task worktree に session が移動しても同じ Harness を利用できます。
+Hook Command は `git rev-parse --show-toplevel` で active repository root を解決します。Control Checkout から task worktree へ session が移動しても absolute path を埋め込む必要がありません。
 
-## 外部承認
+## Approval / Completion
 
-`ask` に分類された操作は Vendor の permission prompt だけに依存させません。Trusted Orchestrator が特定ルールを承認した場合、`AGENT_HARNESS_APPROVED_RULES` を launcher 側から注入して `allow` に昇格できます。
+Central Policy の `ask` は External Approval Class です。Claude Code は native PreToolUse `ask` を利用でき、Codex / Devin は同等の contract が得られない箇所を fail-closed にします。
 
-```bash
-AGENT_HARNESS_APPROVED_RULES=scm-merge-release codex
-```
-
-Claude Code は native PreToolUse `ask` を利用します。Codex / Devin の中央 `ask` は現在の Vendor capability に合わせて fail-closed mapping を維持します。
-
-## Completion Gate
-
-`Stop` Hook は [`completion_gate.sh`](../../reference/scripts/completion_gate.sh) を実行します。失敗時は completion を block します。retry / time / tool / cost budget は外部 Orchestrator にも持たせます。
-
-## Config 自体を保護する
-
-Project Hook、Vendor Config、Broker、Shim は Security-sensitive artifact です。サンプル Policy では control-plane file の変更を `ask` に分類し、最終的には server-side rules / review で保護します。
+`Stop` Hook は [`completion_gate.sh`](../../reference/scripts/completion_gate.sh) を実行します。External Orchestrator 側にも retry / time / tool / cost circuit breaker が必要です。
 
 ## テスト
 
 ```bash
 python -m pip install pytest
-python -m pytest reference/hooks/tests reference/harness/tests reference/scm_broker/tests -q
+python -m pytest reference/hooks/tests reference/harness/tests reference/posture/tests -q
+python reference/launcher/preflight.py --json
 ```
-
-[`harness-tests.yml`](../../.github/workflows/harness-tests.yml) でも Policy / Adapter / Broker test と JSON validation を実行します。
-
-## Production 適用
-
-Broker サンプルは trust boundary を明確にするため `SCM_BROKER_GH_TOKEN` を受け取ります。Production では long-lived PAT ではなく trusted credential provider から発行した repository-scoped / short-lived GitHub App installation token に置き換え、Agent container には絶対に mount しません。
 
 ---
 
