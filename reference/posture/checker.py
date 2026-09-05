@@ -78,6 +78,7 @@ class PostureReport:
     repo_root: str
     default_branch: str | None
     mode: str
+    ttl_seconds: int
     policy_source: str
     checked_at: float
     checks: dict[str, Check]
@@ -96,20 +97,31 @@ class PostureReport:
             repo_root=value["repo_root"],
             default_branch=value.get("default_branch"),
             mode=value["mode"],
+            ttl_seconds=int(value.get("ttl_seconds", 300)),
             policy_source=value.get("policy_source", "unknown"),
             checked_at=float(value["checked_at"]),
             checks=checks,
         )
 
     def summary(self) -> str:
-        problems = [f"{name}={check.status} ({check.detail})" for name, check in self.checks.items() if check.status != "pass"]
+        problems = [
+            f"{name}={check.status} ({check.detail})"
+            for name, check in self.checks.items()
+            if check.status != "pass"
+        ]
         suffix = "; ".join(problems) if problems else "all required checks passed"
         return f"repository posture {self.state}: {suffix}"
 
 
 def _run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        list(command), cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=15
+        list(command),
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=15,
     )
 
 
@@ -197,6 +209,7 @@ def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> P
             repo_root=str(root),
             default_branch=None,
             mode="strict",
+            ttl_seconds=0,
             policy_source="invalid",
             checked_at=time.time(),
             checks={"policy": Check("fail", f"invalid security policy: {exc}")},
@@ -218,7 +231,6 @@ def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> P
         checks["repository_identity"] = Check(status, f"expected {policy.expected_repository}; found {repository}")
 
     default_branch: str | None = None
-    metadata: dict[str, Any] | None = None
     if repository:
         raw, error = _stdout(runner, ["gh", "api", f"repos/{repository}"], root)
         if raw:
@@ -227,14 +239,22 @@ def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> P
                 default_branch = str(metadata.get("default_branch") or "") or None
             except Exception as exc:
                 error = f"invalid repository metadata JSON: {exc}"
-        checks["github_metadata"] = Check("pass", f"default branch {default_branch}") if default_branch else Check("unknown", error or "default branch unavailable")
+        checks["github_metadata"] = (
+            Check("pass", f"default branch {default_branch}")
+            if default_branch
+            else Check("unknown", error or "default branch unavailable")
+        )
     else:
         checks["github_metadata"] = Check("unknown", "GitHub repository identity unavailable")
 
     rulesets: list[dict[str, Any]] | None = None
     rules_error: str | None = None
     if repository and default_branch:
-        raw, rules_error = _stdout(runner, ["gh", "api", f"repos/{repository}/rulesets?includes_parents=true"], root)
+        raw, rules_error = _stdout(
+            runner,
+            ["gh", "api", f"repos/{repository}/rulesets?includes_parents=true"],
+            root,
+        )
         if raw is not None:
             try:
                 parsed = json.loads(raw)
@@ -264,11 +284,26 @@ def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> P
     state = _state_for(policy.mode, checks)
     if checks.get("repository_identity", Check("pass", "")).status == "fail":
         state = "BLOCKED"
-    return PostureReport(state, repository, str(root), default_branch, policy.mode, source, time.time(), checks)
+    return PostureReport(
+        state,
+        repository,
+        str(root),
+        default_branch,
+        policy.mode,
+        policy.ttl_seconds,
+        source,
+        time.time(),
+        checks,
+    )
 
 
 def _state_path(session_id: str) -> Path:
-    base = Path(os.environ.get("AGENT_HARNESS_STATE_DIR", str(Path(tempfile.gettempdir()) / "agent-harness" / "posture")))
+    base = Path(
+        os.environ.get(
+            "AGENT_HARNESS_STATE_DIR",
+            str(Path(tempfile.gettempdir()) / "agent-harness" / "posture"),
+        )
+    )
     digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
     return base / f"{digest}.json"
 
