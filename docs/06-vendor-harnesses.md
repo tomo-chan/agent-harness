@@ -42,7 +42,7 @@ Credential exposure is reduced with sandboxing and policy, but credential compro
 
 ## Repository posture at SessionStart
 
-Each vendor runs the common checker at `SessionStart`. The checker discovers the current repository and queries GitHub metadata/rulesets through read-only `gh api` calls. It normalizes each requirement to `pass`, `fail`, or `unknown`, then derives a session state:
+Each vendor runs the common checker at `SessionStart`. The checker discovers the current repository, reads repository metadata, and asks GitHub for the effective active rules that apply to the default branch. It normalizes each requirement to `pass`, `fail`, or `unknown`, then derives a session state:
 
 - `READY` — all required controls are verified, or the configured `warn` profile accepts warnings;
 - `RESTRICTED` — local development may continue but remote SCM mutation is denied;
@@ -66,11 +66,11 @@ Use native SessionStart and PreToolUse hooks plus the sandbox. Deny known creden
 
 ### Codex
 
-Use project hooks plus the Codex sandbox/workspace controls. Current Codex PreToolUse `ask` is still mapped to deny until runtime enforcement is reliable. Repository posture and GitHub-side controls remain independent of that hook limitation. citeturn285398search0turn285398search1
+Use project hooks plus the Codex sandbox/workspace controls. Current Codex PreToolUse `ask` remains mapped to deny until runtime enforcement provides the contract required by this harness. Repository posture and GitHub-side controls remain independent of that hook limitation.
 
 ### Devin CLI
 
-Use lifecycle hooks, static permissions, and the Devin sandbox. Keep native `git` and `gh` rather than introducing a broker by default. SessionStart is used for posture context/cache; PreToolUse remains the enforcement point for semantic actions. The current Devin docs catalog lifecycle hooks as a first-class CLI extensibility mechanism. citeturn810503view1
+Use lifecycle hooks, static permissions, and the Devin sandbox. Keep native `git` and `gh` rather than introducing a broker by default. SessionStart is used for posture context/cache; PreToolUse remains the enforcement point for semantic actions.
 
 ## Worktree-safe invocation
 
