@@ -1,3 +1,5 @@
+[← README](../README.md) | [日本語](ja/01-architecture.md) | [Next: Design Principles →](02-design-principles.md)
+
 # Reference Architecture
 
 ## 1. Objective
@@ -122,4 +124,10 @@ For a Kubernetes deployment:
 - workload identity instead of static cloud keys;
 - short-lived repository-scoped SCM credentials.
 
+See the reference manifests: [`agent-pod.yaml`](../reference/kubernetes/agent-pod.yaml) and [`network-policy.yaml`](../reference/kubernetes/network-policy.yaml).
+
 The agent's built-in sandbox remains useful inside the Pod. The Pod is the host/process isolation boundary; the agent sandbox is the per-command filesystem/network capability boundary.
+
+---
+
+[← README](../README.md) | [日本語](ja/01-architecture.md) | [Next: Design Principles →](02-design-principles.md)
