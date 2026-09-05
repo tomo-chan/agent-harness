@@ -18,29 +18,15 @@ Assume the agent can encounter:
 
 ## Defense in depth
 
-```text
-Model behavior
-   |
-   v
-Semantic policy/hooks       catches contextual risk
-   |
-   v
-Permissions/rules           limits routine tool authority
-   |
-   v
-OS sandbox                  bounds FS/network capabilities
-   |
-   v
-Pod/container isolation     protects host and peer workloads
-   |
-   v
-Network enforcement         bounds destinations/protocols
-   |
-   v
-IAM/SCM authorization       bounds external authority
-   |
-   v
-Server-side protections     protect critical resources
+```mermaid
+flowchart TD
+    M[Model behavior] --> H[Semantic policy / hooks<br/>catch contextual risk]
+    H --> P[Permissions / rules<br/>limit routine tool authority]
+    P --> S[OS sandbox<br/>bound filesystem / network capabilities]
+    S --> C[Pod / container isolation<br/>protect host and peer workloads]
+    C --> N[Network enforcement<br/>bound destinations / protocols]
+    N --> I[IAM / SCM authorization<br/>bound external authority]
+    I --> R[Server-side protections<br/>protect critical resources]
 ```
 
 No single layer should be expected to catch every failure mode. The architecture behind these boundaries is described in [Reference Architecture](01-architecture.md).
@@ -59,8 +45,11 @@ Repository credentials should be scoped to required repositories and operations.
 
 Use network controls outside the agent runtime as the hard boundary. A recommended pattern is:
 
-```text
-Agent Pod -> NetworkPolicy -> controlled egress proxy/gateway -> allowlisted services
+```mermaid
+flowchart LR
+    A[Agent Pod] --> N[NetworkPolicy]
+    N --> E[Controlled egress proxy / gateway]
+    E --> S[Allowlisted services]
 ```
 
 Block cloud metadata endpoints, cluster administration endpoints and unrelated internal networks. Agent-native domain filtering can be used as defense in depth, not as the only network boundary. See the reference [`network-policy.yaml`](../reference/kubernetes/network-policy.yaml).
