@@ -72,21 +72,22 @@ The agent should normally be able to perform routine work without human interact
 
 ## Repository layout
 
-- `docs/01-architecture.md` — logical and deployment architecture
-- `docs/02-design-principles.md` — design principles and responsibility boundaries
-- `docs/03-security-model.md` — threat model and defense-in-depth controls
-- `docs/04-adoption-guide.md` — staged adoption guide
-- `docs/05-product-mapping.md` — Claude Code / Codex / Devin CLI mapping
-- `reference/hooks/policy_engine.py` — vendor-neutral policy engine
-- `reference/hooks/pre_tool_use_adapter.py` — hook adapter example
-- `reference/policies/policy.example.json` — example policy
-- `reference/scripts/completion_gate.sh` — deterministic completion check
-- `reference/kubernetes/agent-pod.yaml` — hardened Pod example
-- `reference/kubernetes/network-policy.yaml` — default-deny network example
+- [Architecture](docs/01-architecture.md) ([日本語](docs/ja/01-architecture.md)) — logical and deployment architecture
+- [Design Principles](docs/02-design-principles.md) ([日本語](docs/ja/02-design-principles.md)) — design principles and responsibility boundaries
+- [Security Model](docs/03-security-model.md) ([日本語](docs/ja/03-security-model.md)) — threat model and defense-in-depth controls
+- [Adoption Guide](docs/04-adoption-guide.md) ([日本語](docs/ja/04-adoption-guide.md)) — staged adoption guide
+- [Product Mapping](docs/05-product-mapping.md) ([日本語](docs/ja/05-product-mapping.md)) — Claude Code / Codex / Devin CLI mapping
+- [`AGENTS.md`](AGENTS.md) — development instructions for coding agents
+- [`policy_engine.py`](reference/hooks/policy_engine.py) — vendor-neutral policy engine
+- [`pre_tool_use_adapter.py`](reference/hooks/pre_tool_use_adapter.py) — hook adapter example
+- [`policy.example.json`](reference/policies/policy.example.json) — example policy
+- [`completion_gate.sh`](reference/scripts/completion_gate.sh) — deterministic completion check
+- [`agent-pod.yaml`](reference/kubernetes/agent-pod.yaml) — hardened Pod example
+- [`network-policy.yaml`](reference/kubernetes/network-policy.yaml) — default-deny network example
 
 ## Non-goals
 
-This project does not attempt to make prompts, AGENTS.md, CLAUDE.md, Skills, or model reasoning into a security mechanism. Those are useful behavioral controls but are not trusted enforcement boundaries.
+This project does not attempt to make prompts, [AGENTS.md](AGENTS.md), CLAUDE.md, Skills, or model reasoning into a security mechanism. Those are useful behavioral controls but are not trusted enforcement boundaries.
 
 ## Guiding rule
 
