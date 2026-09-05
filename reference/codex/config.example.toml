@@ -1,0 +1,13 @@
+# Sandbox-first Codex profile for agent-harness.
+# Keep spawned-command network access disabled; remote GitHub operations are
+# delegated to the SCM broker over a Unix-domain socket mounted into the workspace.
+
+sandbox_mode = "workspace-write"
+approval_policy = "never"
+allow_login_shell = false
+
+[sandbox_workspace_write]
+network_access = false
+
+[history]
+persistence = "none"
