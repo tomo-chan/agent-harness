@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 ROOT = Path(__file__).resolve().parents[2]
 HOOKS_DIR = ROOT / "reference" / "hooks"
@@ -16,7 +17,7 @@ for path in (HOOKS_DIR, POSTURE_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from checker import check_repository_posture, load_cached_posture, save_cached_posture  # noqa: E402
+from checker import check_repository_posture, load_cached_posture, parse_github_repository, save_cached_posture  # noqa: E402
 from policy_engine import Decision, PolicyEngine  # noqa: E402
 
 DEFAULT_POLICY = ROOT / "reference" / "policies" / "policy.example.json"
@@ -27,6 +28,10 @@ READ_ONLY_COMMAND_RE = re.compile(
     r"(?i)^\s*(?:pwd|ls|find|rg|grep|cat|head|tail|wc|stat|file|tree|git\s+(?:status|diff|log|show|branch|rev-parse|worktree\s+list)\b|gh\s+pr\s+(?:view|status|checks)\b)"
 )
 MUTATING_TOOLS = {"write", "edit", "multi_edit", "apply_patch"}
+CANONICAL_PUSH_FORMS = {
+    ("git", "push"),
+    ("git", "push", "--set-upstream", "origin", "HEAD"),
+}
 
 
 def read_stdin() -> dict[str, Any]:
@@ -62,6 +67,25 @@ def _command(action: dict[str, Any]) -> str:
     return str(value)
 
 
+def _shell_tokens(command: str) -> list[str] | None:
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        return list(lexer)
+    except ValueError:
+        return None
+
+
+def _has_compound_shell(command: str) -> bool:
+    if "\n" in command or "\r" in command or "`" in command or "$(" in command:
+        return True
+    tokens = _shell_tokens(command)
+    if tokens is None:
+        return True
+    return any(token and set(token) <= set(";&|<>") for token in tokens)
+
+
 def _is_scm_mutation(action: dict[str, Any]) -> bool:
     return bool(SCM_MUTATION_RE.search(_command(action)))
 
@@ -73,23 +97,32 @@ def _is_mutation(action: dict[str, Any]) -> bool:
     command = _command(action)
     if not command:
         return False
-    return not bool(READ_ONLY_COMMAND_RE.search(command))
+    if _has_compound_shell(command):
+        return True
+    return not bool(READ_ONLY_COMMAND_RE.fullmatch(command.strip()))
 
 
-def _active_repo_root(cwd: Path) -> str | None:
+def _run_git(cwd: Path, args: Sequence[str]) -> tuple[str | None, str | None]:
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
+            ["git", *args],
             cwd=cwd,
             text=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             timeout=5,
             check=False,
         )
-    except Exception:
-        return None
-    return str(Path(result.stdout.strip()).resolve()) if result.returncode == 0 and result.stdout.strip() else None
+    except Exception as exc:
+        return None, str(exc)
+    if result.returncode != 0:
+        return None, (result.stderr or result.stdout or f"exit {result.returncode}").strip()
+    return result.stdout.strip(), None
+
+
+def _active_repo_root(cwd: Path) -> str | None:
+    value, _ = _run_git(cwd, ["rev-parse", "--show-toplevel"])
+    return str(Path(value).resolve()) if value else None
 
 
 def refresh_repository_posture(raw: dict[str, Any]):
@@ -125,13 +158,80 @@ def repository_posture_context(raw: dict[str, Any]) -> str:
     return report.summary() + f" policy={report.policy_source}."
 
 
+def _validate_canonical_push(raw: dict[str, Any], action: dict[str, Any], report) -> Decision | None:
+    command = _command(action)
+    tokens = _shell_tokens(command)
+    if not tokens or tuple(tokens) not in CANONICAL_PUSH_FORMS:
+        return Decision(
+            "deny",
+            "autonomous push must use exactly `git push` or `git push --set-upstream origin HEAD`",
+            "canonical-git-push",
+        )
+    if report is None or report.state != "READY":
+        reason = report.summary() if report is not None else "repository security posture is unavailable"
+        return Decision("deny", reason, "repository-posture")
+
+    cwd = Path(str(raw.get("cwd") or os.getcwd())).resolve()
+    branch, error = _run_git(cwd, ["branch", "--show-current"])
+    if error or not branch:
+        return Decision("deny", f"cannot determine current branch: {error or 'detached HEAD'}", "canonical-git-push")
+    if branch == report.default_branch:
+        return Decision("deny", f"direct push to default branch {branch} is prohibited", "canonical-git-push")
+
+    remote, error = _run_git(cwd, ["remote", "get-url", "origin"])
+    remote_repo = parse_github_repository(remote or "") if remote else None
+    if error or not remote_repo or remote_repo != report.repository:
+        return Decision("deny", "origin no longer matches the checked repository", "canonical-git-push")
+
+    if tuple(tokens) == ("git", "push"):
+        upstream, error = _run_git(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+        expected = f"origin/{branch}"
+        if error or upstream != expected:
+            return Decision(
+                "deny",
+                f"canonical git push requires upstream {expected}; use `git push --set-upstream origin HEAD` for first publish",
+                "canonical-git-push",
+            )
+    return None
+
+
+def _validate_pr_create(action: dict[str, Any], report) -> Decision | None:
+    command = _command(action)
+    tokens = _shell_tokens(command)
+    if not tokens or tokens[:3] != ["gh", "pr", "create"]:
+        return None
+    if report is None or report.state != "READY":
+        reason = report.summary() if report is not None else "repository security posture is unavailable"
+        return Decision("deny", reason, "repository-posture")
+    forbidden = {"--repo", "-R", "--head", "-H", "--base", "-B"}
+    if any(token in forbidden for token in tokens[3:]):
+        return Decision(
+            "deny",
+            "autonomous `gh pr create` may not override repository, head branch, or base branch",
+            "canonical-pr-create",
+        )
+    return None
+
+
 def _enforce_repository_posture(raw: dict[str, Any], action: dict[str, Any], result: Decision) -> Decision:
-    if result.decision != "allow" or action.get("event") != "PreToolUse":
+    if action.get("event") != "PreToolUse":
         return result
-    if not _is_mutation(action):
+
+    command = _command(action)
+    if result.decision == "allow" and command and _has_compound_shell(command):
+        return Decision("ask", "compound shell syntax is outside the autonomous allowlist", "compound-shell")
+    if result.decision != "allow" or not _is_mutation(action):
         return result
 
     report = current_repository_posture(raw, refresh_if_stale=True)
+    tokens = _shell_tokens(command) or []
+    if tokens[:2] == ["git", "push"]:
+        denied = _validate_canonical_push(raw, action, report)
+        return denied or result
+    if tokens[:3] == ["gh", "pr", "create"]:
+        denied = _validate_pr_create(action, report)
+        return denied or result
+
     if report is None:
         if _is_scm_mutation(action):
             return Decision(
@@ -140,7 +240,6 @@ def _enforce_repository_posture(raw: dict[str, Any], action: dict[str, Any], res
                 "repository-posture",
             )
         return result
-
     if report.state == "BLOCKED":
         return Decision("deny", report.summary(), "repository-posture")
     if report.state == "RESTRICTED" and _is_scm_mutation(action):
