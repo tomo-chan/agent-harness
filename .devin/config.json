@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(.env*)",
+      "Write(.env*)",
+      "Write(.git/**)",
+      "Exec(sudo)",
+      "Exec(git push --force)"
+    ],
+    "ask": [
+      "Exec(gh pr merge)",
+      "Exec(terraform)",
+      "Exec(kubectl)",
+      "Exec(gcloud)",
+      "Exec(aws)",
+      "Exec(az)"
+    ],
+    "allow": [
+      "Read(**)",
+      "Write(**)",
+      "Exec(git)",
+      "Exec(gh pr create)",
+      "Exec(pytest)",
+      "Exec(python -m pytest)",
+      "Exec(ruff)",
+      "Exec(mypy)"
+    ]
+  }
+}

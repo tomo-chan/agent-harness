@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/reference/harness/codex.py\"",
+            "statusMessage": "agent-harness policy check"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/reference/harness/codex.py\"",
+            "statusMessage": "agent-harness completion check"
+          }
+        ]
+      }
+    ]
+  }
+}

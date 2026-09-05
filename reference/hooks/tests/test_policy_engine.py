@@ -1,10 +1,8 @@
-import json
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from policy_engine import PolicyEngine
-
+from policy_engine import PolicyEngine, PolicyError
 
 POLICY = Path(__file__).resolve().parents[2] / "policies" / "policy.example.json"
 
@@ -13,8 +11,8 @@ def engine():
     return PolicyEngine.from_file(POLICY)
 
 
-def action(command):
-    return {"tool": "exec", "input": {"command": command}}
+def action(command, tool="exec", cwd="/repo"):
+    return {"tool": tool, "input": {"command": command}, "context": {"cwd": cwd}}
 
 
 def test_read_only_git_is_allowed():
@@ -35,3 +33,21 @@ def test_pr_merge_requires_approval():
 
 def test_unknown_action_defaults_to_approval():
     assert engine().evaluate(action("some-new-tool --mutate")).decision == "ask"
+
+
+def test_outside_workspace_write_is_denied():
+    value = {"tool": "Write", "input": {"file_path": "/etc/passwd"}, "context": {"cwd": "/repo"}}
+    assert engine().evaluate(value).decision == "deny"
+
+
+def test_workspace_write_is_allowed():
+    value = {"tool": "Write", "input": {"file_path": "src/app.py"}, "context": {"cwd": "/repo"}}
+    assert engine().evaluate(value).decision == "allow"
+
+
+def test_invalid_policy_fails_validation():
+    try:
+        PolicyEngine({"default": "permit"})
+    except PolicyError:
+        return
+    raise AssertionError("invalid policy must raise PolicyError")
