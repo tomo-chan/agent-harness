@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fnmatch
 import hashlib
 import json
 import os
@@ -11,7 +10,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 CommandRunner = Callable[[Sequence[str], Path], subprocess.CompletedProcess[str]]
 
@@ -115,13 +114,8 @@ class PostureReport:
 
 def _run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        list(command),
-        cwd=cwd,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-        timeout=15,
+        list(command), cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        check=False, timeout=15,
     )
 
 
@@ -155,37 +149,6 @@ def parse_github_repository(remote: str) -> str | None:
     return "/".join(parts[:2]) if len(parts) >= 2 else None
 
 
-def _ref_matches(rule: dict[str, Any], default_branch: str) -> bool:
-    ref = f"refs/heads/{default_branch}"
-    condition = rule.get("conditions", {}).get("ref_name")
-    if not isinstance(condition, dict):
-        return True
-    includes = condition.get("include") or []
-    excludes = condition.get("exclude") or []
-
-    def matches(pattern: str) -> bool:
-        if pattern in {"~ALL", "~DEFAULT_BRANCH"}:
-            return pattern == "~ALL" or bool(default_branch)
-        return fnmatch.fnmatch(ref, pattern) or fnmatch.fnmatch(default_branch, pattern)
-
-    if includes and not any(matches(str(item)) for item in includes):
-        return False
-    if any(matches(str(item)) for item in excludes):
-        return False
-    return True
-
-
-def _active_rule_types(rulesets: list[dict[str, Any]], default_branch: str) -> set[str]:
-    rule_types: set[str] = set()
-    for ruleset in rulesets:
-        if ruleset.get("enforcement") != "active" or not _ref_matches(ruleset, default_branch):
-            continue
-        for rule in ruleset.get("rules") or []:
-            if isinstance(rule, dict) and rule.get("type"):
-                rule_types.add(str(rule["type"]))
-    return rule_types
-
-
 def _state_for(mode: str, checks: dict[str, Check]) -> str:
     problem = any(check.status in {"fail", "unknown"} for check in checks.values())
     if not problem:
@@ -197,6 +160,24 @@ def _state_for(mode: str, checks: dict[str, Check]) -> str:
     return "READY"
 
 
+def _effective_rule_types(repository: str, default_branch: str, root: Path, runner: CommandRunner) -> tuple[set[str] | None, str | None]:
+    endpoint = f"repos/{repository}/rules/branches/{quote(default_branch, safe='')}"
+    raw, error = _stdout(runner, ["gh", "api", endpoint], root)
+    if raw is None:
+        return None, error
+    try:
+        parsed = json.loads(raw)
+    except Exception as exc:
+        return None, f"invalid branch-rules JSON: {exc}"
+    if not isinstance(parsed, list):
+        return None, "branch-rules response is not an array"
+    return {
+        str(rule["type"])
+        for rule in parsed
+        if isinstance(rule, dict) and rule.get("type")
+    }, None
+
+
 def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> PostureReport:
     cwd = Path(cwd).resolve()
     root = _repo_root(cwd, runner)
@@ -204,14 +185,8 @@ def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> P
         policy, source = RepositorySecurityPolicy.load(root)
     except Exception as exc:
         return PostureReport(
-            state="BLOCKED",
-            repository=None,
-            repo_root=str(root),
-            default_branch=None,
-            mode="strict",
-            ttl_seconds=0,
-            policy_source="invalid",
-            checked_at=time.time(),
+            state="BLOCKED", repository=None, repo_root=str(root), default_branch=None,
+            mode="strict", ttl_seconds=0, policy_source="invalid", checked_at=time.time(),
             checks={"policy": Check("fail", f"invalid security policy: {exc}")},
         )
 
@@ -231,41 +206,25 @@ def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> P
         checks["repository_identity"] = Check(status, f"expected {policy.expected_repository}; found {repository}")
 
     default_branch: str | None = None
+    metadata_error: str | None = None
     if repository:
-        raw, error = _stdout(runner, ["gh", "api", f"repos/{repository}"], root)
+        raw, metadata_error = _stdout(runner, ["gh", "api", f"repos/{repository}"], root)
         if raw:
             try:
                 metadata = json.loads(raw)
                 default_branch = str(metadata.get("default_branch") or "") or None
             except Exception as exc:
-                error = f"invalid repository metadata JSON: {exc}"
-        checks["github_metadata"] = (
-            Check("pass", f"default branch {default_branch}")
-            if default_branch
-            else Check("unknown", error or "default branch unavailable")
-        )
+                metadata_error = f"invalid repository metadata JSON: {exc}"
+    if default_branch:
+        checks["github_metadata"] = Check("pass", f"default branch {default_branch}")
     else:
-        checks["github_metadata"] = Check("unknown", "GitHub repository identity unavailable")
+        checks["github_metadata"] = Check("unknown", metadata_error or "GitHub repository/default branch unavailable")
 
-    rulesets: list[dict[str, Any]] | None = None
+    rule_types: set[str] | None = None
     rules_error: str | None = None
     if repository and default_branch:
-        raw, rules_error = _stdout(
-            runner,
-            ["gh", "api", f"repos/{repository}/rulesets?includes_parents=true"],
-            root,
-        )
-        if raw is not None:
-            try:
-                parsed = json.loads(raw)
-                if isinstance(parsed, list):
-                    rulesets = parsed
-                else:
-                    rules_error = "rulesets response is not an array"
-            except Exception as exc:
-                rules_error = f"invalid rulesets JSON: {exc}"
+        rule_types, rules_error = _effective_rule_types(repository, default_branch, root, runner)
 
-    rule_types = _active_rule_types(rulesets or [], default_branch or "") if rulesets is not None else set()
     requirements = {
         "require_pull_request": "pull_request",
         "block_force_push": "non_fast_forward",
@@ -274,8 +233,8 @@ def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> P
     for requirement, rule_type in requirements.items():
         if not policy.requirements[requirement]:
             continue
-        if rulesets is None:
-            checks[requirement] = Check("unknown", rules_error or "rulesets unavailable")
+        if rule_types is None:
+            checks[requirement] = Check("unknown", rules_error or "effective branch rules unavailable")
         elif rule_type in rule_types:
             checks[requirement] = Check("pass", f"active {rule_type} rule applies to {default_branch}")
         else:
@@ -285,25 +244,16 @@ def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> P
     if checks.get("repository_identity", Check("pass", "")).status == "fail":
         state = "BLOCKED"
     return PostureReport(
-        state,
-        repository,
-        str(root),
-        default_branch,
-        policy.mode,
-        policy.ttl_seconds,
-        source,
-        time.time(),
-        checks,
+        state, repository, str(root), default_branch, policy.mode, policy.ttl_seconds,
+        source, time.time(), checks,
     )
 
 
 def _state_path(session_id: str) -> Path:
-    base = Path(
-        os.environ.get(
-            "AGENT_HARNESS_STATE_DIR",
-            str(Path(tempfile.gettempdir()) / "agent-harness" / "posture"),
-        )
-    )
+    base = Path(os.environ.get(
+        "AGENT_HARNESS_STATE_DIR",
+        str(Path(tempfile.gettempdir()) / "agent-harness" / "posture"),
+    ))
     digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
     return base / f"{digest}.json"
 
