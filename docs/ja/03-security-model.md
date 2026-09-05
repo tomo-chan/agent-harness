@@ -18,32 +18,18 @@
 
 ## Defense in Depth
 
-```text
-Model behavior
-   |
-   v
-Semantic policy/hooks       文脈依存の危険を検出
-   |
-   v
-Permissions/rules           通常操作の authority を制限
-   |
-   v
-OS sandbox                  filesystem/network capability を制限
-   |
-   v
-Pod/container isolation     host/peer workload を保護
-   |
-   v
-Network enforcement         destination/protocol を制限
-   |
-   v
-IAM/SCM authorization       external authority を制限
-   |
-   v
-Server-side protections     critical resource を最終防御
+```mermaid
+flowchart TD
+    M[Model behavior] --> H[Semantic policy / hooks<br/>文脈依存の危険を検出]
+    H --> P[Permissions / rules<br/>通常操作の authority を制限]
+    P --> S[OS sandbox<br/>filesystem / network capability を制限]
+    S --> C[Pod / container isolation<br/>host / peer workload を保護]
+    C --> N[Network enforcement<br/>destination / protocol を制限]
+    N --> I[IAM / SCM authorization<br/>external authority を制限]
+    I --> R[Server-side protections<br/>critical resource を最終防御]
 ```
 
-単一レイヤーで全 failure mode を防ぐことは想定しません。各境界の責務は[リファレンスアーキテクチャ](01-architecture.md)を参照してください。
+単一レイヤーで全 failure mode を防ぐことは想定しません。各境界の責務は [リファレンスアーキテクチャ](01-architecture.md) を参照してください。
 
 ## Trusted Computing Base
 
@@ -59,11 +45,14 @@ Repository credential は対象 repository と必要操作だけに scope しま
 
 Agent Runtime の外側にある network control を hard boundary とします。
 
-```text
-Agent Pod -> NetworkPolicy -> controlled egress proxy/gateway -> allowlisted services
+```mermaid
+flowchart LR
+    A[Agent Pod] --> N[NetworkPolicy]
+    N --> E[Controlled egress proxy / gateway]
+    E --> S[Allowlisted services]
 ```
 
-Cloud metadata endpoint、cluster administration endpoint、無関係な internal network は遮断します。Agent 内蔵の domain filtering は defense in depth として利用し、唯一の network boundary にはしません。リファレンスは [`network-policy.yaml`](../../reference/kubernetes/network-policy.yaml) を参照してください。
+Cloud metadata endpoint、cluster administration endpoint、無関係な internal network は遮断します。Agent 内蔵の domain filtering は defense in depth として利用し、唯一の network boundary にはしません。実装例は [`network-policy.yaml`](../../reference/kubernetes/network-policy.yaml) を参照してください。
 
 ## MCP / External Tool
 
@@ -79,7 +68,7 @@ Production data へのアクセスには read-only service account を優先し�
 
 ## Git / SCM
 
-`status`、`diff`、`log`、feature branch の commit / push、PR creation などの通常操作は許可しやすくします。一方、force push、protected branch mutation、tag/release creation、workflow modification、merge などは deny または approval 対象にします。分類例は [`policy.example.json`](../../reference/policies/policy.example.json) を参照してください。
+`status`、`diff`、`log`、feature branch の commit / push、PR creation などの通常操作は許可しやすくします。一方、force push、protected branch mutation、tag/release creation、workflow modification、merge などは deny または approval 対象にします。サンプル分類は [`policy.example.json`](../../reference/policies/policy.example.json) を参照してください。
 
 最終的な権威は SCM server-side rules です。Agent credential が ruleset や branch protection を bypass できてはいけません。
 
