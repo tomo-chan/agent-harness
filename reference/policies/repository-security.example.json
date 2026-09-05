@@ -1,0 +1,10 @@
+{
+  "mode": "restricted",
+  "ttl_seconds": 300,
+  "requirements": {
+    "github_remote": true,
+    "require_pull_request": true,
+    "block_force_push": true,
+    "required_status_checks": true
+  }
+}
