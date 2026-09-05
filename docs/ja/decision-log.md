@@ -4,6 +4,8 @@
 
 このログは Harness の設計・実装に影響する判断、特に**現時点の Vendor 制約に起因する暫定判断**を記録します。**Vendor Update 時に再評価**とした項目は、Claude Code / Codex / Devin CLI などの機能追加・仕様変更時に必ず見直します。
 
+詳細な判断は [`docs/ja/decisions/`](decisions/) 配下に分離して記録できます。現在の詳細レコード: [DL-011 — Sandbox-first Credential Isolation](decisions/DL-011-sandbox-first-credential-isolation.md)。
+
 ## Status
 
 - **Accepted** — 現在採用している設計判断
@@ -109,6 +111,17 @@
 - 理由: Hook Failure Semantics と Coverage は Vendor / Version により異なる。Model / Hook Layer が失敗しても External Capability Boundary が有効である必要がある。
 - 影響: Production Deployment では Sandbox、Container / Pod Hardening、Egress Control、Short-lived IAM / SCM Credential、Server-side Ruleset が引き続き必要。
 - 再評価条件: Vendor Feature だけでこの原則を置き換える場合は、明示的 Threat Model Review を必須とする。
+
+## DL-011 — Sandbox-first Credential Isolation
+
+詳細レコード: [DL-011 — Sandbox-first Credential Isolation](decisions/DL-011-sandbox-first-credential-isolation.md)
+
+- 日付: 2026-09-05
+- Status: Accepted / Vendor Update 時に再評価
+- 対象: Claude Code / Codex / Devin CLI / SCM 認証
+- 判断: Native Sandbox Credential Masking / Mediation を第一選択とし、Vendor Sandbox が Credential Confidentiality と必要な `git` / `gh` capability を同時に満たせない場合だけ narrow SCM Broker を利用する。
+- Security Invariant: Agent は GitHub capability を持ってよいが、再利用可能な GitHub credential を readable data として持ってはいけない。
+- Upgrade Path: 十分に強い native credential masking または first-class authenticated SCM capability を追加した Vendor では Broker を削除する。
 
 ## Maintenance Rule
 
