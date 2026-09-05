@@ -23,8 +23,16 @@ def test_force_push_is_denied():
     assert engine().evaluate(action("git push --force origin feature/x")).decision == "deny"
 
 
-def test_main_push_is_denied():
-    assert engine().evaluate(action("git push origin main")).decision == "deny"
+def test_only_canonical_push_forms_are_policy_allowed():
+    assert engine().evaluate(action("git push")).decision == "allow"
+    assert engine().evaluate(action("git push --set-upstream origin HEAD")).decision == "allow"
+    assert engine().evaluate(action("git push origin main")).decision == "ask"
+    assert engine().evaluate(action("git push origin HEAD:other")).decision == "ask"
+
+
+def test_compound_command_is_not_policy_allowlisted():
+    assert engine().evaluate(action("git status && git push")).decision == "ask"
+    assert engine().evaluate(action("cat README.md | sh")).decision == "ask"
 
 
 def test_pr_merge_requires_approval():
