@@ -14,7 +14,9 @@ Before making non-trivial changes, read:
 4. [Security Model](docs/03-security-model.md) ([日本語](docs/ja/03-security-model.md))
 5. [Adoption Guide](docs/04-adoption-guide.md) ([日本語](docs/ja/04-adoption-guide.md))
 6. [Product Mapping](docs/05-product-mapping.md) ([日本語](docs/ja/05-product-mapping.md))
-7. [Implementation Decision Log](docs/decision-log.md) ([日本語](docs/ja/decision-log.md))
+7. [Vendor Harnesses](docs/06-vendor-harnesses.md) ([日本語](docs/ja/06-vendor-harnesses.md))
+8. [Implementation Decision Log](docs/decision-log.md) ([日本語](docs/ja/decision-log.md))
+9. [DL-011: Sandbox-first Credential Isolation](docs/decisions/DL-011-sandbox-first-credential-isolation.md) ([日本語](docs/ja/decisions/DL-011-sandbox-first-credential-isolation.md))
 
 ## Core invariants
 
@@ -26,6 +28,8 @@ Do not weaken these invariants without an explicit architectural decision:
 - Container/Pod isolation protects the host and other workloads independently of the agent sandbox.
 - IAM, SCM rulesets, branch protection, and server-side authorization are authoritative for external systems.
 - Autonomous agents must use least-privilege, preferably short-lived credentials.
+- The agent may possess GitHub capability but must not possess reusable GitHub credentials as readable filesystem, environment, process, CLI, or broker-output data.
+- Prefer native sandbox credential masking/mediation. Use the SCM broker only when the vendor sandbox cannot preserve credential confidentiality while keeping required SCM functionality.
 - Direct mutation of protected/default branches must not be part of the normal autonomous path.
 - Production-impacting operations require an explicitly designed authorization path; do not add broad production credentials to coding-agent workers.
 - MCP and other external tools are part of the security boundary and require server-side authorization.
@@ -56,26 +60,16 @@ Separate the control plane from the execution plane. Durable task state, policy 
 
 - [`docs/`](docs/) — English architecture/design/security/adoption documentation
 - [`docs/ja/`](docs/ja/) — Japanese documentation corresponding to `docs/`
-- [`docs/decision-log.md`](docs/decision-log.md) — implementation decisions and upgrade/revisit triggers
+- [`docs/decisions/`](docs/decisions/) — focused implementation decision records
 - [`reference/hooks/`](reference/hooks/) — policy engine and vendor adapter examples
-- [`reference/harness/`](reference/harness/) — vendor-specific harness adapters
+- [`reference/harness/`](reference/harness/) — runnable vendor adapters
+- [`reference/scm_broker/`](reference/scm_broker/) — narrow SCM broker fallback for vendors without native credential masking
+- [`reference/shims/`](reference/shims/) — agent-facing `git` / `gh` shims for brokered remote operations
 - [`reference/policies/`](reference/policies/) — policy examples
 - [`reference/scripts/`](reference/scripts/) — deterministic lifecycle/completion utilities
-- [`reference/kubernetes/`](reference/kubernetes/) — workload and network-isolation examples
+- [`reference/kubernetes/`](reference/kubernetes/) — workload, credential-isolation, and network-isolation examples
 
 When changing an English architecture document, update the corresponding Japanese document in the same change where practical. Keep terminology and architectural meaning aligned; the Japanese version does not need to be a literal translation.
-
-## Decision log requirements
-
-Record implementation decisions in [docs/decision-log.md](docs/decision-log.md) and keep the Japanese counterpart aligned when the change:
-
-- selects one architectural alternative over another;
-- introduces a workaround for a vendor limitation, missing capability, or bug;
-- changes a trust boundary, failure mode, approval path, or security invariant;
-- deliberately leaves a capability unimplemented because the current tool cannot support it safely; or
-- can likely be simplified or improved by a future Claude Code, Codex, Devin CLI, Kubernetes, SCM, or other dependency update.
-
-For vendor/version-sensitive decisions, record the current limitation, chosen workaround, consequence, and an explicit **revisit trigger / upgrade path**. When the limitation disappears, do not delete history: mark the old entry `Superseded` and add or link the replacement decision.
 
 ## Development rules
 
@@ -85,15 +79,16 @@ For vendor/version-sensitive decisions, record the current limitation, chosen wo
 - Deny rules must take precedence over approval/allow rules when multiple rules can match.
 - Security-critical errors should fail closed wherever the surrounding product/runtime permits it.
 - Never embed real secrets, tokens, account identifiers, private endpoints, or production credentials in examples or tests.
+- Never add a design that returns a real SCM credential to the agent process merely to preserve CLI compatibility.
 - Kubernetes examples must remain non-privileged and must not introduce `hostPath`, host networking, runtime sockets, or broad default egress without explicit security documentation.
-- Avoid introducing a generic privileged shell/MCP path as a shortcut around policy.
+- Avoid introducing a generic privileged shell/MCP/SCM API path as a shortcut around policy.
 
 ## Testing
 
-For changes to [`reference/hooks/`](reference/hooks/) or [`reference/harness/`](reference/harness/), run:
+For changes to the harness, run:
 
 ```bash
-python -m pytest reference/hooks/tests reference/harness/tests -q
+python -m pytest reference/hooks/tests reference/harness/tests reference/scm_broker/tests -q
 ```
 
 Add or update tests for policy behavior. At minimum, preserve coverage for:
@@ -103,9 +98,24 @@ Add or update tests for policy behavior. At minimum, preserve coverage for:
 - protected/default-branch push denial;
 - approval-required operations;
 - unknown-operation default behavior;
-- vendor adapter translations for allow/ask/deny semantics.
+- rejection of generic `gh api` / auth-token extraction paths;
+- rejection of arbitrary broker execution and workspace escape.
 
 If a change modifies a security invariant, add a regression test when the invariant is machine-testable.
+
+## Decision log requirement
+
+Record implementation decisions in the [Implementation Decision Log](docs/decision-log.md), or in a focused record under [`docs/decisions/`](docs/decisions/) when the decision needs substantial detail.
+
+Add or update a decision record whenever a change:
+
+- selects one architectural alternative over another;
+- works around a current vendor limitation, bug, or missing capability;
+- changes a trust boundary, failure mode, approval path, or security invariant;
+- deliberately restricts functionality because the current vendor cannot enforce it safely; or
+- can likely be simplified or improved when Claude Code, Codex, Devin CLI, Kubernetes, GitHub, or another dependency is upgraded.
+
+For vendor-dependent or temporary choices, explicitly record the current limitation, the chosen workaround, and the upgrade/revisit trigger. Do not silently remove historical decisions; mark them superseded and point to the replacement decision.
 
 ## Documentation expectations
 
@@ -121,7 +131,7 @@ Architecture documentation should distinguish clearly between:
 
 Do not describe a prompt, hook, deny-list, or model instruction as a complete security control when a lower-level enforcement boundary is required.
 
-Product-specific statements about Claude Code, Codex, or Devin CLI can change over time. Verify current upstream documentation before making claims about hook schemas, sandbox behavior, permission semantics, network filtering, or enterprise enforcement. Keep vendor adapters versionable and avoid assuming identical semantics across products.
+Product-specific statements about Claude Code, Codex, or Devin CLI can change over time. Verify current upstream documentation before making claims about hook schemas, sandbox behavior, credential masking, permission semantics, network filtering, or enterprise enforcement. Keep vendor adapters versionable and avoid assuming identical semantics across products.
 
 ## Git workflow
 
@@ -148,7 +158,6 @@ A change is complete only when all applicable conditions are true:
 - relevant tests pass;
 - security invariants remain intact;
 - English/Japanese documentation is synchronized when applicable;
-- implementation decisions and vendor workarounds are recorded in the Decision Log when applicable;
 - Git state contains only intended changes;
 - no credentials or sensitive artifacts were introduced;
-- any vendor-specific behavior added or changed is documented with its assumptions.
+- any vendor-specific behavior added or changed is documented with its assumptions and revisit trigger.
