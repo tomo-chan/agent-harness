@@ -8,15 +8,26 @@
       "reason": "File writes must stay inside the active workspace."
     },
     {
+      "id": "sensitive-file-read",
+      "tool_regex": "(?i)^(Read|read)$",
+      "path_regex": "(^|/)(\\.env($|\\.)|\\.git-credentials$|\\.ssh/|credentials?($|\\.)|secrets?($|\\.)|\\.config/gh/hosts\\.yml$)",
+      "reason": "Known credential-bearing files are not agent-readable."
+    },
+    {
       "id": "sensitive-file-write",
       "tool_regex": "(?i)^(Write|Edit|write|edit|multi_edit)$",
-      "path_regex": "(^|/)(\\.env($|\\.)|\\.git/|credentials?($|\\.)|secrets?($|\\.))",
+      "path_regex": "(^|/)(\\.env($|\\.)|\\.git/|\\.git-credentials$|\\.ssh/|credentials?($|\\.)|secrets?($|\\.)|\\.config/gh/hosts\\.yml$)",
       "reason": "Sensitive credential or Git-internal paths are protected."
+    },
+    {
+      "id": "credential-extraction-shell",
+      "command_regex": "(?i)(gh\\s+auth\\s+token|git\\s+credential(?:-[a-z0-9_-]+)?\\b|(?:cat|head|tail|sed|awk)\\s+[^\\n]*(?:\\.git-credentials|\\.config/gh/hosts\\.yml|/\\.ssh/))",
+      "reason": "Direct credential extraction is prohibited; credential compromise is contained separately by SCM/IAM policy."
     },
     {
       "id": "destructive-shell",
       "tool_regex": "(?i)^(Bash|exec|shell)$",
-      "command_regex": "(?i)(^|[;&|]\\s*)(sudo\\b|su\\s+-|mkfs\\b|shutdown\\b|reboot\\b|terraform\\s+destroy\\b|kubectl\\s+delete\\b|rm\\s+-[^\\n]*r[^\\n]*f\\s+/(?:\\s|$)|dd\\s+[^\\n]*of=/dev/)" ,
+      "command_regex": "(?i)(^|[;&|]\\s*)(sudo\\b|su\\s+-|mkfs\\b|shutdown\\b|reboot\\b|terraform\\s+destroy\\b|kubectl\\s+delete\\b|rm\\s+-[^\\n]*r[^\\n]*f\\s+/(?:\\s|$)|dd\\s+[^\\n]*of=/dev/)",
       "reason": "Destructive or privileged shell operation is prohibited."
     },
     {
@@ -34,8 +45,8 @@
     {
       "id": "harness-config-change",
       "tool_regex": "(?i)^(Write|Edit|write|edit|multi_edit)$",
-      "path_regex": "(^|/)(\\.claude/|\\.codex/|\\.devin/|\\.github/workflows/|AGENTS\\.md$)",
-      "reason": "Changing agent, policy, or CI control files requires explicit approval."
+      "path_regex": "(^|/)(\\.agent-harness/|\\.claude/|\\.codex/|\\.devin/|\\.github/workflows/|reference/harness/|reference/hooks/|reference/posture/|reference/policies/|AGENTS\\.md$)",
+      "reason": "Changing agent, posture, policy, or CI control files requires explicit approval."
     },
     {
       "id": "scm-merge-release",
@@ -79,7 +90,7 @@
     {
       "id": "feature-git-mutation",
       "command_regex": "(?i)^\\s*git\\s+(add|commit|checkout|switch|restore|worktree\\s+add|push)(?:\\s|$)",
-      "reason": "Routine feature-branch Git operations are allowed; deny rules protect force/default-branch pushes."
+      "reason": "Routine feature-branch Git operations are allowed; deny rules and repository posture protect remote authority boundaries."
     },
     {
       "id": "verification",
@@ -89,7 +100,7 @@
     {
       "id": "pr-publish",
       "command_regex": "(?i)^\\s*gh\\s+pr\\s+(create|view|status|checks)(?:\\s|$)",
-      "reason": "PR creation and inspection are allowed."
+      "reason": "PR creation and inspection are allowed when repository posture permits remote mutation."
     }
   ]
 }
