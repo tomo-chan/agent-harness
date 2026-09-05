@@ -1,0 +1,36 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "network": {
+      "allowedDomains": ["github.com", "api.github.com"],
+      "tlsTerminate": {}
+    },
+    "credentials": {
+      "envVars": [
+        {
+          "name": "GH_TOKEN",
+          "mode": "mask",
+          "injectHosts": ["api.github.com"]
+        },
+        {
+          "name": "GITHUB_TOKEN",
+          "mode": "mask",
+          "injectHosts": ["api.github.com", "github.com"]
+        }
+      ],
+      "files": [
+        {
+          "path": "~/.config/gh/hosts.yml",
+          "mode": "mask",
+          "extract": "oauth_token:\\s*(\\S+)",
+          "onExtractNoMatch": "deny",
+          "injectHosts": ["api.github.com"]
+        },
+        {"path": "~/.git-credentials", "mode": "deny"},
+        {"path": "~/.ssh", "mode": "deny"}
+      ]
+    }
+  }
+}
