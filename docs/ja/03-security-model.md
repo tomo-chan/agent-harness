@@ -2,95 +2,78 @@
 
 # セキュリティモデル
 
-## 脅威モデル
+## Threat Model
 
-エージェントが以下に遭遇する前提で設計します。
+Agent が Source / Issue / Web / Tool Output の悪意ある指示、Hallucinated / Destructive Command、Compromised Dependency、Credential 誤露出、Over-privileged MCP、誤った Repository / Worktree、Runaway Retry、Compromised Local Policy、Cloud Metadata / Internal Endpoint へのアクセス試行に遭遇する前提で設計します。
 
-- source code、issue、Web page、documentation、tool output に埋め込まれた悪意ある指示
-- hallucination や破壊的 command
-- dependency install script や compromised package
-- credential の誤露出
-- malicious / over-privileged MCP tool
-- repository / worktree / branch の誤選択
-- runaway retry loop
-- compromised hook / policy code
-- cloud metadata や internal control-plane endpoint へのアクセス試行
+さらに **Credential Compromise は起こり得る**ものとします。GitHub Credential が Agent から見えてしまっても、被害範囲を限定できる構造が必要です。
 
-## Defense in Depth
+## Defense in Depth と責務分離
 
 ```mermaid
 flowchart TD
-    M[Model behavior] --> H[Semantic policy / hooks<br/>文脈依存の危険を検出]
-    H --> P[Permissions / rules<br/>通常操作の authority を制限]
-    P --> S[OS sandbox<br/>filesystem / network capability を制限]
-    S --> C[Pod / container isolation<br/>host / peer workload を保護]
-    C --> N[Network enforcement<br/>destination / protocol を制限]
-    N --> I[IAM / SCM authorization<br/>external authority を制限]
-    I --> R[Server-side protections<br/>critical resource を最終防御]
+    M[Model Behavior] --> SS[SessionStart Posture Check<br/>Unsafe Repository Config を検出]
+    SS --> H[Semantic Policy / Hooks<br/>Contextual Risk を分類]
+    H --> P[Permissions / Rules<br/>Routine Tool Authority を制限]
+    P --> S[OS Sandbox<br/>Filesystem / Process / Network Capability を低減]
+    S --> C[Single Hardened Container / Pod<br/>Host / Resource を保護]
+    C --> I[IAM / SCM Authorization<br/>Credential Compromise を封じ込め]
+    I --> R[GitHub Rulesets / Server-side Policy<br/>Authoritative Resource Protection]
 ```
 
-単一レイヤーで全 failure mode を防ぐことは想定しません。各境界の責務は [リファレンスアーキテクチャ](01-architecture.md) を参照してください。
+単一レイヤーに全 Failure Mode を背負わせません。特に Sandbox の責務を「Credential が絶対に漏れないこと」にまで拡張し、Repository Safety をその前提へ依存させないようにします。
 
 ## Trusted Computing Base
 
-TCB は小さく保ちます。少なくとも Orchestrator、Policy Engine、Sandbox Implementation、Workload Isolation、Credential Broker、External Authorization System が含まれます。Agent-generated code と model reasoning は trusted component ではありません。
+TCB は小さく保ちます。Baseline には Orchestrator、Policy Engine、Posture Checker、Sandbox Implementation、Workload Isolation、Credential Issuance / Authorization、External Server-side Policy が含まれます。Agent-generated Code と Model Reasoning は Untrusted です。
+
+Credential を隠すだけのための Broker / Sidecar は Default TCB から除外します。Trusted Component と Operational State を増やすためです。
+
+## Repository Posture
+
+SessionStart で Local Policy が前提にする外部条件を確認します。Repository Identity、Default Branch、Required Pull Request、Force-push Prevention、Required Status Checks 等を GitHub から取得可能な範囲で検証します。
+
+Check は3値です。
+
+- `pass`: Control を確認済み
+- `fail`: Control が未達であることを確認
+- `unknown`: API / Plan / Integration / Permission 等により現在確認不能
+
+`unknown` を勝手に `pass` または `fail` に変換しません。対応は Posture Mode が決定します。詳細は [DL-012](decisions/DL-012-sessionstart-repository-posture.md) を参照してください。
 
 ## Credential
 
-Workload Identity と short-lived credential を優先します。広範な personal credential を agent home directory に mount しません。可能であれば、通常の filesystem read から credential を分離し、必要な process / proxy にだけ渡します。
+Short-lived / Repository-scoped / Least-privilege Credential を優先します。Sandbox の deny path、Environment Hygiene、`gh auth token` や Credential File Read を拒否する Semantic Policy で露出を低減します。
 
-Repository credential は対象 repository と必要操作だけに scope します。Production credential は通常、coding-agent Pod に存在させるべきではありません。
+ただし Security Invariant は「Agent が Credential を絶対に観測できない」ではありません。
+
+> Credential Compromise が unrestricted Repository / Organization Authority を意味してはいけない。
+
+Narrow GitHub App / IAM Permission、短い Lifetime、Server-side Ruleset / Branch Protection、Audit / Revoke で Compromise を封じ込めます。Coding に不要な Production Credential は Agent Pod に置きません。
+
+## Sandbox
+
+Sandbox は通常の Filesystem / Process / Network Capability と Secret Exposure を狭めます。Defense Layer ではありますが、唯一の Authority Boundary ではありません。Vendor-native Credential Masking が安定して利用できる場合は追加 Hardening として使いますが、対応しない Vendor に同等機能を再現するためだけに Privileged Broker Infrastructure は追加しません。
 
 ## Network
 
-Agent Runtime の外側にある network control を hard boundary とします。
-
-```mermaid
-flowchart LR
-    A[Agent Pod] --> N[NetworkPolicy]
-    N --> E[Controlled egress proxy / gateway]
-    E --> S[Allowlisted services]
-```
-
-Cloud metadata endpoint、cluster administration endpoint、無関係な internal network は遮断します。Agent 内蔵の domain filtering は defense in depth として利用し、唯一の network boundary にはしません。実装例は [`network-policy.yaml`](../../reference/kubernetes/network-policy.yaml) を参照してください。
-
-## MCP / External Tool
-
-MCP は Agent の authority を拡張するため、Threat Model に含めます。次の組み合わせを推奨します。
-
-1. MCP tool permission / rule
-2. semantic PreToolUse policy
-3. MCP server authentication / authorization
-4. least-privilege service account / IAM
-5. audit logging
-
-Production data へのアクセスには read-only service account を優先します。Generic administrative MCP tool を autonomous session に公開することは避けます。
+Network Control は Deployment Threat Model に合わせます。Internal Service や Cloud Metadata への露出がある環境では Default-deny Egress が有効です。一方で native `git` / `gh` から GitHub への通信は意図的に許可する場合があります。Network を広く許す場合は Least-privilege Credential と Strong Server-side SCM Policy で補完します。
 
 ## Git / SCM
 
-`status`、`diff`、`log`、feature branch の commit / push、PR creation などの通常操作は許可しやすくします。一方、force push、protected branch mutation、tag/release creation、workflow modification、merge などは deny または approval 対象にします。サンプル分類は [`policy.example.json`](../../reference/policies/policy.example.json) を参照してください。
+Feature Branch の Routine Work は自律化しやすくします。Force Push、Protected Branch Mutation、Tag / Release、Workflow Modification、Merge は Policy に応じて deny / approval とします。
 
-最終的な権威は SCM server-side rules です。Agent credential が ruleset や branch protection を bypass できてはいけません。
+Remote Mutation 前には Repository Posture `READY` を要求します。`RESTRICTED` では Local Development を許可しながら `git push` / `gh pr create` 等を deny、`BLOCKED` では mutation を deny します。
+
+最終 Authority は SCM Server-side Rule です。Agent Credential が Protected Branch Invariant を bypass できてはいけません。
 
 ## Hook Failure Semantics
 
-Hook は semantic policy に有効ですが、failure behavior は製品や version によって異なります。Hook timeout / crash / malformed output 後に execution が継続する可能性がある場合、その Hook は fail-open として扱います。Hard invariant は Hook 不在でも有効な Sandbox、IAM、Server-side Control で守ります。
+Hook は Semantic Policy に有効ですが Failure Behavior は Vendor / Version で異なります。Hook Timeout / Crash / Malformed Output が起きても IAM Scope / GitHub-side Protection を破れないようにします。SessionStart Posture Check は Fail-fast / Context Injection、PreToolUse は Semantic Enforcement、GitHub-side Rule は Authoritative Enforcement という分担です。
 
 ## Audit
 
-最低限、以下を記録します。
-
-- task/session/turn identifiers
-- model/runtime/version
-- policy version
-- tool/action と normalized target
-- allow/deny/ask decision と reason
-- approval actor/scope/expiry
-- execution outcome
-- commit/PR/CI identifiers
-- sandbox/network denial
-
-Raw secret はログに記録しません。OTel や集中分析基盤に流せる structured event を推奨します。
+Task / Session / Turn ID、Runtime / Version、Policy Version、Repository Posture と各 Check、Tool / Action、allow / deny / ask、Approval、Execution Result、Commit / PR / CI、Sandbox / Network Denial を Structured Event として記録します。Raw Secret は記録しません。
 
 ---
 
