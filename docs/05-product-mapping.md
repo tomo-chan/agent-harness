@@ -41,14 +41,16 @@ Devin CLI tightly connects Permissions with sandbox scope and provides an explic
 
 Use a normalized internal event model:
 
-```text
-Vendor event
-   -> Adapter
-   -> Normalized Action
-   -> Policy Engine
-   -> allow / ask / deny (+ reason/context)
-   -> Adapter
-   -> Vendor response
+```mermaid
+flowchart LR
+    V[Vendor event] --> A1[Vendor Adapter]
+    A1 --> N[Normalized Action]
+    N --> P[Policy Engine]
+    P --> D{Decision}
+    D -->|allow| A2[Vendor Adapter]
+    D -->|ask| A2
+    D -->|deny| A2
+    A2 --> R[Vendor response]
 ```
 
 The reference implementation is [`policy_engine.py`](../reference/hooks/policy_engine.py) with a minimal [`pre_tool_use_adapter.py`](../reference/hooks/pre_tool_use_adapter.py).
