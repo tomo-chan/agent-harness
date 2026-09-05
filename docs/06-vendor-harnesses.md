@@ -20,13 +20,55 @@ flowchart LR
 
 ## Files
 
-- [`.claude/settings.json`](../.claude/settings.json) — Claude Code PreToolUse and Stop hooks.
+- [`.claude/settings.json`](../.claude/settings.json) — Claude Code hooks plus strict sandbox baseline.
+- [`reference/claude/managed-settings.example.json`](../reference/claude/managed-settings.example.json) — trusted Claude credential masking example.
 - [`.codex/hooks.json`](../.codex/hooks.json) — Codex PreToolUse and Stop hooks.
+- [`reference/codex/config.example.toml`](../reference/codex/config.example.toml) — Codex workspace-write profile with spawned-command network disabled.
 - [`.devin/hooks.v1.json`](../.devin/hooks.v1.json) — Devin CLI project hook file.
-- [`.devin/config.json`](../.devin/config.json) — Devin CLI static permissions.
-- [`reference/harness/claude.py`](../reference/harness/claude.py), [`codex.py`](../reference/harness/codex.py), [`devin.py`](../reference/harness/devin.py) — vendor adapters.
+- [`.devin/config.json`](../.devin/config.json) — Devin CLI static permissions including credential path denial.
+- [`reference/harness/`](../reference/harness/) — vendor adapters.
+- [`reference/scm_broker/`](../reference/scm_broker/) — fallback remote-SCM broker used only where native credential masking is insufficient.
+- [`reference/shims/git`](../reference/shims/git) and [`reference/shims/gh`](../reference/shims/gh) — agent-facing command shims for brokered remote operations.
+- [`reference/kubernetes/agent-with-scm-broker.yaml`](../reference/kubernetes/agent-with-scm-broker.yaml) — sidecar deployment example where only the broker receives the GitHub credential.
 - [`reference/hooks/policy_engine.py`](../reference/hooks/policy_engine.py) — shared policy evaluator.
 - [`reference/policies/policy.example.json`](../reference/policies/policy.example.json) — shared policy.
+
+## Credential isolation: sandbox first
+
+Credential confidentiality follows [DL-011](decisions/DL-011-sandbox-first-credential-isolation.md): use native sandbox credential mediation first and introduce privileged broker infrastructure only when the vendor sandbox cannot keep the real credential out of the agent process.
+
+```mermaid
+flowchart LR
+    A[Agent] --> S[Vendor Sandbox]
+    S -->|local git| W[Worktree]
+    S --> M{Native credential masking?}
+    M -->|Claude Code: yes| P[Sandbox credential proxy]
+    M -->|Codex / Devin: no| B[SCM Broker fallback]
+    P --> GH[GitHub]
+    B --> GH
+    C[Real credential] --> P
+    C2[Real credential] --> B
+    A -. no readable credential .-> C
+    A -. no readable credential .-> C2
+```
+
+### Claude Code
+
+Claude Code currently supports sandbox credential masking. The trusted user/managed-settings example masks `GH_TOKEN` / `GITHUB_TOKEN` and the token field inside `~/.config/gh/hosts.yml`; sandboxed commands see only a sentinel, while the sandbox proxy substitutes the real value on requests to the allowed GitHub hosts. The repository-local `.claude/settings.json` enables strict sandbox startup and disables unsandboxed fallback. Credential `mask` itself must be installed from a trusted user/managed settings source rather than project-local settings.
+
+### Codex
+
+Codex currently provides OS-level workspace/network sandboxing but not equivalent credential masking. The recommended profile keeps spawned-command network disabled. The agent container receives no GitHub token or credential file; `git`/`gh` remote operations are routed through the SCM broker socket. Local Git operations still execute normally in the worktree.
+
+### Devin CLI
+
+Devin's sandbox can hide credential paths through `Read(...)` deny rules for the whole session. Since hiding those files also prevents native `gh` from consuming them and there is no equivalent credential masking/injection, remote operations use the same broker fallback. Devin's fail-closed sandbox startup remains part of the security invariant.
+
+### Broker boundary
+
+The broker is intentionally narrow. It supports only approved semantic remote operations: `git push/fetch/pull/clone` and `gh pr create/view/status/checks`. It rejects `gh auth`, generic `gh api`, Git credential operations, arbitrary shell execution, and workspace escape. The broker constructs the canonical GitHub repository URL itself instead of trusting an agent-modifiable remote URL.
+
+The token is present only in the broker container/process environment. The agent container intentionally has no token, `gh` credential file, Git credential store, or GitHub SSH private key mounted into it.
 
 ## Worktree-safe invocation
 
@@ -40,9 +82,7 @@ Rules classified as `ask` are not automatically made safe merely because a vendo
 AGENT_HARNESS_APPROVED_RULES=scm-merge-release codex
 ```
 
-The variable must be supplied by the trusted launcher/orchestrator, not written into repository configuration. A comma-separated list is supported. `*` exists for controlled testing but should not be used for unattended production sessions.
-
-Claude Code supports a native PreToolUse `ask` result, so unapproved `ask` remains interactive. Current Codex parses `ask` but does not enforce it as a supported PreToolUse outcome; the adapter therefore maps unapproved `ask` to `deny`. Devin uses its portable top-level blocking shape for central-policy `ask`; its static permission system can still provide interactive prompts independently.
+The variable must be supplied by the trusted launcher/orchestrator, not written into repository configuration. Claude Code supports native PreToolUse `ask`; current Codex/Devin mappings remain fail-closed until their hook semantics are sufficient for the same contract.
 
 ## Completion gate
 
@@ -58,14 +98,14 @@ Run:
 
 ```bash
 python -m pip install pytest
-python -m pytest reference/hooks/tests reference/harness/tests -q
+python -m pytest reference/hooks/tests reference/harness/tests reference/scm_broker/tests -q
 ```
 
-The GitHub Actions workflow [`harness-tests.yml`](../.github/workflows/harness-tests.yml) runs the adapter/policy tests and validates committed JSON files.
+The GitHub Actions workflow [`harness-tests.yml`](../.github/workflows/harness-tests.yml) runs the policy/adapter/broker tests and validates committed JSON files.
 
 ## Production notes
 
-This is a reference harness, not a replacement for OS sandboxing, Kubernetes isolation, egress control, workload identity, GitHub rulesets, or cloud IAM. In production, use short-lived repository-scoped credentials and make protected-branch and production mutations impossible server-side even if hooks fail.
+The broker example accepts `SCM_BROKER_GH_TOKEN` to make the trust boundary explicit and testable. Production should replace a stored PAT with a short-lived, repository-scoped GitHub App installation token issued by a trusted credential provider. Never mount that credential into the agent container.
 
 ---
 
