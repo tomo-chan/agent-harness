@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from common import completion_check, emit, evaluate, read_stdin
+from common import completion_check, emit, evaluate, read_stdin, repository_posture_context
 
 
 def main() -> int:
@@ -11,13 +11,18 @@ def main() -> int:
         return emit({"decision": "block", "reason": f"invalid hook input: {exc}"})
 
     event = str(raw.get("hook_event_name", "PreToolUse"))
+    if event == "SessionStart":
+        return emit({
+            "hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "additionalContext": repository_posture_context(raw),
+            }
+        })
     if event == "Stop":
         ok, reason = completion_check(raw)
         return emit({} if ok else {"decision": "block", "reason": reason})
 
     result = evaluate(raw, "devin")
-    # Devin's portable blocking contract is top-level decision:block.
-    # Ask is held until an external approval rule promotes it to allow.
     if result.decision == "allow":
         return emit({})
     prefix = "approval required: " if result.decision == "ask" else ""
