@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository defines a vendor-neutral reference architecture and implementation for secure autonomous software-engineering agents. Preserve the central security model: the LLM is not a security boundary. Repository posture checks, policy, sandboxing, workload isolation, IAM/SCM authorization, server-side rules and deterministic completion checks remain independent layers.
+This repository defines a vendor-neutral reference architecture and implementation for secure autonomous software-engineering agents. Preserve the central security model: the LLM is not a security boundary. Trusted task identity, repository posture checks, policy, sandboxing, workload isolation, IAM/SCM authorization, server-side rules and deterministic completion checks remain independent layers.
 
 ## Read first
 
@@ -18,6 +18,7 @@ Before making non-trivial changes, read:
 8. [Implementation Decision Log](docs/decision-log.md) ([日本語](docs/ja/decision-log.md))
 9. [DL-011: Sandbox-first credential exposure reduction](docs/decisions/DL-011-sandbox-first-credential-isolation.md)
 10. [DL-012: SessionStart repository posture](docs/decisions/DL-012-sessionstart-repository-posture.md)
+11. [DL-013: Canonical SCM publication](docs/decisions/DL-013-canonical-scm-publication.md)
 
 ## Core invariants
 
@@ -25,10 +26,15 @@ Do not weaken these invariants without an explicit architectural decision:
 
 - Prompt instructions, `AGENTS.md`, `CLAUDE.md`, Skills, or model reasoning are behavioral controls, not security boundaries.
 - Hooks provide semantic/lifecycle policy but are not the sole enforcement mechanism for critical security invariants.
-- Repository security posture is checked at SessionStart and revalidated before stale remote trust-boundary operations.
+- Trusted launcher/orchestrator state establishes expected repository identity; repository-local config cannot authoritatively redefine task identity.
+- Missing trusted repository identity is `UNKNOWN`; repository mismatch is `BLOCKED`.
+- Repository-local posture mode cannot weaken the trusted minimum posture mode; the default minimum is `restricted`.
+- Repository security posture is checked at SessionStart and revalidated before stale remote trust-boundary operations or after repository-root changes.
 - `pass`, `fail`, and `unknown` are distinct posture results; unavailable metadata must not silently become `pass`.
 - Missing posture configuration uses built-in `restricted` defaults; invalid explicit policy fails closed to `BLOCKED`.
 - `RESTRICTED` preserves local development but denies remote SCM mutation; `BLOCKED` denies mutation.
+- Autonomous remote publication uses canonical command shapes and semantic validation, not arbitrary shell/refspec parsing.
+- Compound shell syntax is outside the autonomous allowlist even when its first command is read-only.
 - The OS sandbox reduces filesystem/process/network capability and credential exposure independently of model behavior.
 - Container/Pod isolation protects the host and resources independently of the agent sandbox.
 - Default deployment is one Pod / one agent container; do not add broker/sidecar/shim infrastructure without a concrete threat model and Decision Log entry.
@@ -47,15 +53,18 @@ Keep vendor-specific behavior behind adapters. The preferred flow is:
 
 ```mermaid
 flowchart LR
-    SS[SessionStart] --> RP[Repository Posture]
+    TL[Trusted launcher state] --> RP[Repository Posture]
+    SS[SessionStart] --> RP
     V[Vendor PreToolUse] --> A1[Vendor Adapter]
     A1 --> N[Normalized Action]
     N --> P[Policy Engine]
     RP --> P
     P --> D{Decision}
-    D -->|allow| A2[Vendor Adapter]
+    D -->|allow publish| SV[SCM Semantic Validator]
+    D -->|allow local| A2[Vendor Adapter]
     D -->|ask| A2
     D -->|deny| A2
+    SV --> A2
     A2 --> R[Vendor-specific response]
 ```
 
@@ -67,7 +76,7 @@ Do not put vendor-specific semantics into the central policy engine unless they 
 - [`docs/ja/`](docs/ja/) — Japanese counterparts
 - [`docs/decisions/`](docs/decisions/) — detailed implementation decisions
 - [`reference/hooks/`](reference/hooks/) — policy engine
-- [`reference/harness/`](reference/harness/) — runnable vendor adapters
+- [`reference/harness/`](reference/harness/) — runnable vendor adapters and SCM semantic validation
 - [`reference/posture/`](reference/posture/) — repository security posture checker and state cache
 - [`reference/policies/`](reference/policies/) — semantic and repository-security policy examples
 - [`reference/launcher/`](reference/launcher/) — optional preflight utilities
@@ -81,6 +90,10 @@ When changing an English architecture document, update the corresponding Japanes
 - Prefer Python standard library for the small reference implementation unless an external dependency has clear architectural value.
 - Keep policy and posture decisions deterministic and testable.
 - Prefer structured data over parsing free-form model prose.
+- If a required operation can be expressed as a narrow canonical command/argv contract, prefer that over increasingly complex shell regex parsing.
+- Treat `&&`, `||`, `;`, pipes, redirection, newlines and command substitution as outside autonomous command allowlists unless a dedicated parser/validator explicitly owns the semantics.
+- Autonomous Git publication is limited to `git push` and `git push --set-upstream origin HEAD`; validate repository, current branch, default branch, `origin` and upstream before allowing it.
+- Autonomous `gh pr create` must not override repository, head branch or base branch.
 - Deny rules take precedence over ask/allow rules.
 - Security-critical errors fail closed wherever the runtime permits it.
 - Never embed real secrets, tokens, account identifiers, private endpoints, or production credentials in examples/tests.
@@ -97,7 +110,7 @@ For harness changes, run:
 python -m pytest reference/hooks/tests reference/harness/tests reference/posture/tests -q
 ```
 
-Preserve coverage for safe read-only Git, force-push denial, protected-branch denial, approval-required actions, credential extraction denial, control-plane file protection, repository posture state derivation, `RESTRICTED` remote-mutation denial, and `BLOCKED` mutation denial.
+Preserve regression coverage for safe read-only Git, force-push denial, approval-required actions, credential extraction denial, control-plane file protection, repository posture state derivation, missing/mismatched trusted repository identity, repository-local mode not weakening trusted minimum, `RESTRICTED` remote-mutation denial, `BLOCKED` mutation denial, compound-shell bypass attempts, non-canonical push/refspec rejection, default-branch push rejection, origin/upstream mismatch and PR repository/head/base override rejection.
 
 ## Decision log requirement
 
@@ -107,7 +120,7 @@ For temporary/vendor-dependent choices, record the limitation, workaround, and r
 
 ## Documentation expectations
 
-Distinguish behavioral guidance, repository posture detection, semantic policy, static permissions, OS capability isolation, workload isolation, IAM/SCM containment, server-side enforcement, and observability. Do not describe a prompt, hook, deny-list, sandbox, or credential secrecy assumption as a complete security control when a lower-level authority boundary is required.
+Distinguish trusted task identity, repository posture detection, behavioral guidance, semantic policy, static permissions, SCM semantic validation, OS capability isolation, workload isolation, IAM/SCM containment, server-side enforcement, and observability. Do not describe a prompt, hook, deny-list, sandbox, or credential secrecy assumption as a complete security control when a lower-level authority boundary is required.
 
 Product-specific claims change over time. Verify upstream documentation before changing hook schemas, SessionStart behavior, sandbox/network behavior, permission semantics, or credential-masking guidance.
 
@@ -121,7 +134,7 @@ flowchart LR
     T --> V[Verify]
     V --> C[Commit]
     C --> P[Posture READY?]
-    P -->|yes| U[Push]
+    P -->|yes| U[Canonical push]
     U --> R[Pull Request]
     P -->|no| L[Remain local / remediate]
 ```
