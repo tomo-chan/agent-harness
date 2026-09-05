@@ -10,25 +10,25 @@ An autonomous coding agent should be able to inspect a repository, create an iso
 
 Separate policy decisions from execution.
 
-```text
-                         CONTROL PLANE
- Task/Queue --> Orchestrator --> Policy Engine --> Approval Gateway
-                    |               |                  |
-                    |               +--> Audit/OTel <--+
-                    |
-                    v
-                         EXECUTION PLANE
-                Agent Runtime / Session
-                         |
-                    Worktree
-                         |
-              Permissions / Rules
-                         |
-                    OS Sandbox
-                         |
-                 Kubernetes Pod
-                         |
-              Network / IAM / SCM
+```mermaid
+flowchart TB
+    subgraph CP[Control Plane]
+        T[Task / Queue] --> O[Orchestrator]
+        O --> P[Policy Engine]
+        P --> A[Approval Gateway]
+        P --> OT[Audit / OTel]
+        A --> OT
+    end
+
+    subgraph EP[Execution Plane]
+        R[Agent Runtime / Session] --> W[Worktree]
+        W --> PR[Permissions / Rules]
+        PR --> S[OS Sandbox]
+        S --> K[Kubernetes Pod]
+        K --> N[Network / IAM / SCM]
+    end
+
+    O --> R
 ```
 
 The control plane decides what should be allowed. The execution plane supplies the technical capability boundary. A failure in one layer must not silently grant authority belonging to another layer.
@@ -37,19 +37,27 @@ The control plane decides what should be allowed. The execution plane supplies t
 
 Treat autonomous work as an explicit state machine rather than an unconstrained chat loop.
 
-```text
-RECEIVED
-  -> DISCOVERING
-  -> PLANNING
-  -> MUTATING
-  -> VERIFYING
-  -> COMMITTING
-  -> PUBLISHING
-  -> PR_OPEN
-  -> WAITING_FOR_CI
-  -> COMPLETE
+```mermaid
+stateDiagram-v2
+    [*] --> RECEIVED
+    RECEIVED --> DISCOVERING
+    DISCOVERING --> PLANNING
+    PLANNING --> MUTATING
+    MUTATING --> VERIFYING
+    VERIFYING --> COMMITTING
+    COMMITTING --> PUBLISHING
+    PUBLISHING --> PR_OPEN
+    PR_OPEN --> WAITING_FOR_CI
+    WAITING_FOR_CI --> COMPLETE
+    COMPLETE --> [*]
 
-Any state -> BLOCKED / NEEDS_APPROVAL / FAILED
+    RECEIVED --> BLOCKED
+    DISCOVERING --> BLOCKED
+    PLANNING --> NEEDS_APPROVAL
+    MUTATING --> NEEDS_APPROVAL
+    VERIFYING --> FAILED
+    COMMITTING --> FAILED
+    PUBLISHING --> FAILED
 ```
 
 Persist state outside the model context. Context compaction, process restart, model switching or subagent execution must not destroy authoritative task state.
@@ -58,10 +66,10 @@ Persist state outside the model context. Context compaction, process restart, mo
 
 Use one worktree per mutable task. Keep the original checkout as a stable control checkout.
 
-```text
-/repo/control               # normally read-only to the agent
-/worktrees/task-123         # writable task workspace
-/worktrees/task-456
+```mermaid
+flowchart LR
+    C[/repo/control<br/>normally read-only/] --> T1[/worktrees/task-123<br/>writable task workspace/]
+    C --> T2[/worktrees/task-456<br/>writable task workspace/]
 ```
 
 Recommended rules:
