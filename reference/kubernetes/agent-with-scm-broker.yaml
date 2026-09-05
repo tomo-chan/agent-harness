@@ -1,84 +1,64 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: agent-with-scm-broker
+  name: agent-worker
   labels:
     app: agent-worker
 spec:
   automountServiceAccountToken: false
   securityContext:
-    fsGroup: 20000
-    fsGroupChangePolicy: OnRootMismatch
     seccompProfile:
       type: RuntimeDefault
   containers:
     - name: agent
       image: example.invalid/agent-harness:latest
+      command:
+        - python3
+        - /workspace/agent-harness/reference/launcher/sandbox_first.py
+        - --
+        - codex
       env:
-        - name: PATH
-          value: /workspace/agent-harness/reference/shims:/usr/local/bin:/usr/bin:/bin
+        - name: AGENT_HARNESS_GITHUB_TOKEN_FILE
+          value: /run/secrets/scm/token
         - name: AGENT_HARNESS_SCM_SOCKET
           value: /run/agent-harness/scm.sock
-      securityContext:
-        allowPrivilegeEscalation: false
-        privileged: false
-        readOnlyRootFilesystem: true
-        runAsNonRoot: true
-        runAsUser: 10001
-        runAsGroup: 20000
-        capabilities:
-          drop: ["ALL"]
-      volumeMounts:
-        - name: workspace
-          mountPath: /workspace
-        - name: broker-socket
-          mountPath: /run/agent-harness
-        - name: tmp
-          mountPath: /tmp
-      # The agent container intentionally has no GitHub Secret, token, key,
-      # gh hosts.yml, or git credential file mounted into it.
-
-    - name: scm-broker
-      image: example.invalid/agent-harness:latest
-      command: ["python3", "/workspace/agent-harness/reference/scm_broker/server.py"]
-      env:
         - name: SCM_BROKER_SOCKET
           value: /run/agent-harness/scm.sock
         - name: SCM_BROKER_WORKSPACE_ROOT
           value: /workspace
         - name: SCM_BROKER_REPOSITORY
           value: owner/repository
-        - name: SCM_BROKER_GH_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: scm-broker-github
-              key: token
       securityContext:
         allowPrivilegeEscalation: false
         privileged: false
         readOnlyRootFilesystem: true
         runAsNonRoot: true
-        runAsUser: 10002
-        runAsGroup: 20000
+        runAsUser: 10001
+        runAsGroup: 10001
         capabilities:
           drop: ["ALL"]
       volumeMounts:
         - name: workspace
           mountPath: /workspace
-        - name: broker-socket
+        - name: runtime
           mountPath: /run/agent-harness
-        - name: broker-tmp
+        - name: scm-credential
+          mountPath: /run/secrets/scm
+          readOnly: true
+        - name: tmp
           mountPath: /tmp
 
   volumes:
     - name: workspace
       emptyDir: {}
-    - name: broker-socket
+    - name: runtime
       emptyDir: {}
     - name: tmp
       emptyDir: {}
-    - name: broker-tmp
-      emptyDir: {}
+    - name: scm-credential
+      secret:
+        secretName: scm-broker-github
+        defaultMode: 0400
 
 ---
 apiVersion: v1
@@ -86,6 +66,20 @@ kind: Secret
 metadata:
   name: scm-broker-github
 stringData:
-  # Example only. Production should issue a short-lived GitHub App installation
-  # token through a trusted credential provider rather than storing a long-lived PAT.
+  # Reference only. Prefer a short-lived GitHub App installation token supplied
+  # by an external secret/credential provider rather than a long-lived PAT.
   token: REPLACE_WITH_SHORT_LIVED_INSTALLATION_TOKEN
+
+# Single Pod, single container:
+#
+#   trusted launcher
+#      ├─ starts the narrow SCM helper OUTSIDE the agent's command sandbox
+#      │    └─ helper alone receives the GitHub token
+#      └─ removes credential variables and execs Codex/Devin
+#           └─ agent tool commands run inside the vendor sandbox
+#                └─ remote git/gh operations use the Unix socket shim
+#
+# The secret is mounted in the container because the trusted launcher/helper need
+# it, but the vendor sandbox must deny/unmount /run/secrets/scm from agent-executed
+# commands. Claude Code should prefer its native credential masking instead and
+# does not need this fallback helper when masking is available.
