@@ -67,6 +67,24 @@ def test_repository_security_config_requires_approval():
     assert engine().evaluate(value).decision == "ask"
 
 
+def test_application_architecture_contract_requires_approval():
+    value = {
+        "tool": "Write",
+        "input": {"file_path": ".agent-harness/application-architecture.json"},
+        "context": {"cwd": "/repo"},
+    }
+    assert engine().evaluate(value).decision == "ask"
+
+
+def test_application_gate_implementation_requires_approval():
+    value = {
+        "tool": "Write",
+        "input": {"file_path": "reference/application_gate/gate.py"},
+        "context": {"cwd": "/repo"},
+    }
+    assert engine().evaluate(value).decision == "ask"
+
+
 def test_invalid_policy_fails_validation():
     try:
         PolicyEngine({"default": "permit"})
