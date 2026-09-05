@@ -1,0 +1,57 @@
+{
+  "default": "ask",
+  "deny": [
+    {
+      "id": "deny-destructive-shell",
+      "tool_regex": "^(exec|Bash)$",
+      "command_regex": "(^|[;&| ]+)(sudo\\b|rm\\s+-[^\\n]*r[^\\n]*f|terraform\\s+destroy\\b|kubectl\\s+delete\\b)",
+      "reason": "destructive or privileged command is prohibited"
+    },
+    {
+      "id": "deny-force-push",
+      "tool_regex": "^(exec|Bash)$",
+      "command_regex": "git\\s+push\\b[^\\n]*(--force|-f)(\\s|$)",
+      "reason": "force push is prohibited"
+    },
+    {
+      "id": "deny-default-branch-push",
+      "tool_regex": "^(exec|Bash)$",
+      "command_regex": "git\\s+push\\b[^\\n]*(main|master)(:|\\s|$)",
+      "reason": "direct push to a protected default branch is prohibited"
+    }
+  ],
+  "ask": [
+    {
+      "id": "approve-merge",
+      "tool_regex": "^(exec|Bash)$",
+      "command_regex": "(^|\\s)gh\\s+pr\\s+merge\\b",
+      "reason": "merging crosses the autonomous coding boundary"
+    },
+    {
+      "id": "approve-cloud-mutation",
+      "tool_regex": "^(exec|Bash)$",
+      "command_regex": "(^|\\s)(aws|gcloud|az|terraform|kubectl)\\b",
+      "reason": "cloud or cluster mutation requires contextual authorization"
+    }
+  ],
+  "allow": [
+    {
+      "id": "allow-git-read",
+      "tool_regex": "^(exec|Bash)$",
+      "command_regex": "^git\\s+(status|diff|log|show|branch|rev-parse|worktree\\s+list)\\b",
+      "reason": "read-only Git inspection"
+    },
+    {
+      "id": "allow-tests",
+      "tool_regex": "^(exec|Bash)$",
+      "command_regex": "^(pytest|ruff|mypy|npm\\s+test|go\\s+test)\\b",
+      "reason": "verification command"
+    },
+    {
+      "id": "allow-pr-create",
+      "tool_regex": "^(exec|Bash)$",
+      "command_regex": "^gh\\s+pr\\s+(create|view|status)\\b",
+      "reason": "pull-request workflow is within the normal autonomous boundary"
+    }
+  ]
+}
