@@ -8,14 +8,12 @@ This repository defines a vendor-neutral reference architecture and implementati
 
 Before making non-trivial changes, read:
 
-1. `README.md` or `README.ja.md`
-2. `docs/01-architecture.md`
-3. `docs/02-design-principles.md`
-4. `docs/03-security-model.md`
-5. `docs/04-adoption-guide.md`
-6. `docs/05-product-mapping.md`
-
-Japanese translations are under `docs/ja/`.
+1. [README.md](README.md) or [README.ja.md](README.ja.md)
+2. [Architecture](docs/01-architecture.md) ([日本語](docs/ja/01-architecture.md))
+3. [Design Principles](docs/02-design-principles.md) ([日本語](docs/ja/02-design-principles.md))
+4. [Security Model](docs/03-security-model.md) ([日本語](docs/ja/03-security-model.md))
+5. [Adoption Guide](docs/04-adoption-guide.md) ([日本語](docs/ja/04-adoption-guide.md))
+6. [Product Mapping](docs/05-product-mapping.md) ([日本語](docs/ja/05-product-mapping.md))
 
 ## Core invariants
 
@@ -53,12 +51,12 @@ Separate the control plane from the execution plane. Durable task state, policy 
 
 ## Repository structure
 
-- `docs/` — English architecture/design/security/adoption documentation
-- `docs/ja/` — Japanese documentation corresponding to `docs/`
-- `reference/hooks/` — policy engine and vendor adapter examples
-- `reference/policies/` — policy examples
-- `reference/scripts/` — deterministic lifecycle/completion utilities
-- `reference/kubernetes/` — workload and network-isolation examples
+- [`docs/`](docs/) — English architecture/design/security/adoption documentation
+- [`docs/ja/`](docs/ja/) — Japanese documentation corresponding to `docs/`
+- [`reference/hooks/`](reference/hooks/) — policy engine and vendor adapter examples
+- [`reference/policies/`](reference/policies/) — policy examples
+- [`reference/scripts/`](reference/scripts/) — deterministic lifecycle/completion utilities
+- [`reference/kubernetes/`](reference/kubernetes/) — workload and network-isolation examples
 
 When changing an English architecture document, update the corresponding Japanese document in the same change where practical. Keep terminology and architectural meaning aligned; the Japanese version does not need to be a literal translation.
 
@@ -75,7 +73,7 @@ When changing an English architecture document, update the corresponding Japanes
 
 ## Testing
 
-For changes to `reference/hooks/`, run:
+For changes to [`reference/hooks/`](reference/hooks/), run:
 
 ```bash
 python -m pytest reference/hooks/tests -q
