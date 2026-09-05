@@ -30,6 +30,7 @@ The layers have deliberately different responsibilities:
 | Layer | Responsibility |
 |---|---|
 | Instructions / Skills | Desired behavior, workflow and architecture guidance |
+| Trusted launcher state | Authoritative task identity and minimum posture (`AGENT_HARNESS_EXPECTED_REPOSITORY`, minimum mode) |
 | SessionStart posture check | Detect repository/security configuration drift before work begins |
 | Hooks / Policy Engine | Semantic and lifecycle policy |
 | Permissions / Rules | Static command, tool and path classification |
@@ -42,13 +43,26 @@ The layers have deliberately different responsibilities:
 
 ## Repository posture states
 
-At `SessionStart`, the harness checks repository identity and GitHub-side controls such as required PRs, force-push prevention, and required status checks. Each check is `pass`, `fail`, or `unknown`; the session becomes:
+At `SessionStart`, the harness checks the actual repository against trusted launcher state and inspects GitHub-side controls such as required PRs, force-push prevention, and required status checks. Each check is `pass`, `fail`, or `unknown`; the session becomes:
 
 - `READY` — normal policy applies;
 - `RESTRICTED` — local development is allowed, but remote SCM mutation is denied;
 - `BLOCKED` — mutating actions are denied.
 
-If `.agent-harness/security.json` is missing, built-in `restricted` defaults are used. Invalid explicit configuration is `BLOCKED`. Stale posture is rechecked before remote trust-boundary operations such as `git push` or `gh pr create`.
+The trusted launcher should set `AGENT_HARNESS_EXPECTED_REPOSITORY=owner/repository`. If it is absent, repository identity is `UNKNOWN`, so the default `restricted` minimum prevents remote publication. Repository-local `mode: warn` cannot weaken the default minimum; only a trusted launcher can explicitly lower `AGENT_HARNESS_MINIMUM_POSTURE_MODE` for an interactive use case.
+
+If `.agent-harness/security.json` is missing, built-in `restricted` defaults are used. Invalid explicit configuration is `BLOCKED`. Stale posture is rechecked before remote trust-boundary operations.
+
+## Canonical autonomous publication
+
+The autonomous path deliberately avoids arbitrary shell/refspec parsing. Git publication is limited to:
+
+```bash
+git push
+git push --set-upstream origin HEAD
+```
+
+A semantic validator then confirms `READY` posture, the checked repository, current non-default branch, `origin`, and the expected upstream. Arbitrary remotes, destination refspecs, tags, delete/force forms and configuration overrides are outside the autonomous allowlist. `gh pr create` may not override repository, head branch or base branch. Compound shell syntax such as `&&`, pipes, redirection, newlines and command substitution is also outside the autonomous allowlist.
 
 ## Standard autonomous flow
 
@@ -65,9 +79,9 @@ flowchart LR
     Q --> G[Policy / completion gate]
     G --> C[Commit]
     C --> U{Posture READY?}
-    U -->|yes| PU[Push feature branch]
+    U -->|yes| PU[Canonical push]
     U -->|no| RS[Remain local / request remediation]
-    PU --> PR[Create PR]
+    PU --> PR[Create PR without repo/head/base override]
     PR --> CI[CI / review]
     CI --> M[Protected server-side merge]
 ```
@@ -83,7 +97,8 @@ flowchart LR
 - [Implementation Decision Log](docs/decision-log.md) ([日本語](docs/ja/decision-log.md))
 - [DL-011: Sandbox-first credential exposure reduction](docs/decisions/DL-011-sandbox-first-credential-isolation.md)
 - [DL-012: SessionStart repository posture](docs/decisions/DL-012-sessionstart-repository-posture.md)
-- [`reference/harness/`](reference/harness/) — vendor adapters
+- [DL-013: Canonical SCM publication](docs/decisions/DL-013-canonical-scm-publication.md)
+- [`reference/harness/`](reference/harness/) — vendor adapters and semantic publication validation
 - [`reference/posture/`](reference/posture/) — repository posture checker and cache
 - [`policy.example.json`](reference/policies/policy.example.json) — semantic policy
 - [`repository-security.example.json`](reference/policies/repository-security.example.json) — repository posture profile
