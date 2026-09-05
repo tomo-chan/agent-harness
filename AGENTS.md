@@ -35,14 +35,16 @@ Do not weaken these invariants without an explicit architectural decision:
 
 Keep vendor-specific behavior behind adapters. The preferred flow is:
 
-```text
-Vendor Event
-  -> Vendor Adapter
-  -> Normalized Action
-  -> Policy Engine
-  -> allow / ask / deny
-  -> Vendor Adapter
-  -> Vendor-specific response
+```mermaid
+flowchart LR
+    V[Vendor Event] --> A1[Vendor Adapter]
+    A1 --> N[Normalized Action]
+    N --> P[Policy Engine]
+    P --> D{Decision}
+    D -->|allow| A2[Vendor Adapter]
+    D -->|ask| A2
+    D -->|deny| A2
+    A2 --> R[Vendor-specific response]
 ```
 
 Do not put Claude Code, Codex, or Devin-specific semantics into the central policy engine unless they represent a genuinely vendor-neutral concept.
@@ -109,8 +111,15 @@ Product-specific statements about Claude Code, Codex, or Devin CLI can change ov
 
 For non-trivial implementation work, prefer:
 
-```text
-inspect -> feature branch/worktree -> implement -> test -> verify -> commit -> push -> PR
+```mermaid
+flowchart LR
+    I[Inspect] --> W[Feature branch / worktree]
+    W --> M[Implement]
+    M --> T[Test]
+    T --> V[Verify]
+    V --> C[Commit]
+    C --> P[Push]
+    P --> R[Pull Request]
 ```
 
 Do not force-push or directly push implementation changes to a protected default branch as part of autonomous operation. Do not merge a PR unless the task explicitly authorizes merge and repository policy permits it.
