@@ -2,60 +2,75 @@
 
 # Agent Harness 日本語版
 
-Claude Code / OpenAI Codex / Devin CLI などの自律型ソフトウェア開発エージェントを、安全かつ再利用可能な形で運用するための、ベンダー非依存のリファレンスアーキテクチャと実装例です。
+Claude Code / OpenAI Codex / Devin CLI などの自律型ソフトウェア開発エージェントを、安全かつ再利用可能な形で運用するための Vendor-neutral Reference Architecture と実装例です。
 
-このリポジトリの中心的な考え方は、**LLM 自体をセキュリティ境界として扱わない**ことです。自律実行は、独立したポリシー、OS サンドボックス、Pod/コンテナ分離、外部 IAM、ネットワーク制御、機械検証可能な完了条件によって制約されるべきです。
+中心的な考え方は **LLM 自体を Security Boundary として扱わない**ことです。自律実行は、Lifecycle Policy、Repository Posture Check、OS Sandbox、Workload Isolation、外部 IAM / SCM Authority、Server-side Repository Rule、Machine-verifiable Completion Gate によって独立して制約します。
 
 ## 基本アーキテクチャ
 
 ```mermaid
 flowchart TD
     A[Instructions / AGENTS.md / Skills] --> B[Agent Runtime]
-    B -->|lifecycle hooks| C[Policy Engine]
+    B --> SS[SessionStart Posture Check]
+    SS --> C[Policy Engine]
+    B -->|PreToolUse| C
     C -->|allow| D[Permissions / Rules]
     C -->|ask| E[Approval Gateway]
-    C -->|deny| X[Stop]
+    C -->|deny| X[Deny / Restrict]
     E --> D
     D --> F[OS Sandbox]
-    F --> G[Container / Pod]
-    G --> H[IAM / SCM / Cloud Policy]
-    H --> I[External Systems]
+    F --> G[Single Agent Container / Pod]
+    G --> H[IAM / SCM Credential Scope]
+    H --> I[GitHub / Cloud]
+    I --> R[Rulesets / Server-side Policy]
 ```
 
-各レイヤーの責務は明確に分離します。
+各レイヤーの責務を明確に分離します。
 
 | レイヤー | 主な責務 |
 |---|---|
 | Instructions / Skills | 望ましい振る舞い、作業手順、設計方針 |
-| Hooks / Policy Engine | 文脈依存・ライフサイクル依存のポリシー判断 |
-| Permissions / Rules | コマンド、ツール、パスの静的分類 |
-| Sandbox | ファイルシステム・ネットワークの能力境界 |
-| Container / Pod | プロセス、ホスト、リソースの隔離 |
-| IAM / SCM Policy | 外部システムに対する権限と被害範囲の制御 |
-| Completion Gate | 機械検証可能な「完了」の定義 |
-| Telemetry | 監査、障害解析、ポリシーチューニング |
+| SessionStart Posture Check | 作業開始前に Repository / Security Configuration Drift を検出 |
+| Hooks / Policy Engine | Semantic / Lifecycle Policy |
+| Permissions / Rules | Command / Tool / Path の静的分類 |
+| Sandbox | Filesystem / Process / Network capability と Credential Exposure を低減 |
+| Container / Pod | Host / Resource Isolation。Baseline は 1 Pod / 1 Container |
+| IAM / SCM Policy | Short-lived / Least-privilege で Credential Compromise の blast radius を制限 |
+| GitHub Rulesets | Branch / PR / CI の Authoritative Enforcement |
+| Completion Gate | Machine-verifiable な完了条件 |
+| Telemetry | Audit / Incident Analysis / Policy Tuning |
+
+## Repository Posture State
+
+`SessionStart` で Repository Identity と GitHub-side control（Required PR、Force Push Prevention、Required Status Checks 等）を確認します。各 Check は `pass` / `fail` / `unknown`、Session は次の3状態です。
+
+- `READY` — 通常 Policy を適用
+- `RESTRICTED` — local development は許可するが remote SCM mutation は deny
+- `BLOCKED` — mutation を deny
+
+`.agent-harness/security.json` がない場合は built-in `restricted` default を利用します。明示的な設定が invalid な場合は `BLOCKED` です。`git push` や `gh pr create` の直前には cache が stale なら Posture を再確認します。
 
 ## 標準的な自律実行フロー
 
 ```mermaid
 flowchart LR
-    T[Task] --> I[リポジトリ調査<br/>read-only]
+    T[Task] --> S[SessionStart Posture Check]
+    S --> I[Repository を read-only 調査]
     I --> W{変更が必要?}
-    W -->|はい| B[feature worktree / branch 作成]
+    W -->|はい| B[Feature Worktree / Branch 作成]
     W -->|いいえ| V[結果検証]
-    B --> P[計画]
-    P --> E[編集]
-    E --> Q[test / lint / type-check]
-    Q --> G[policy / completion gate]
-    G --> C[commit]
-    C --> U[feature branch を push]
-    U --> R[PR 作成]
-    R --> CI[CI / review]
-    CI --> M[保護された server-side merge]
-    V --> M
+    B --> P[Plan]
+    P --> E[Edit]
+    E --> Q[Test / Lint / Type-check]
+    Q --> G[Policy / Completion Gate]
+    G --> C[Commit]
+    C --> U{Posture READY?}
+    U -->|yes| PU[Feature Branch Push]
+    U -->|no| RS[Local に留める / Remediation]
+    PU --> PR[PR 作成]
+    PR --> CI[CI / Review]
+    CI --> M[Protected Server-side Merge]
 ```
-
-通常業務は可能な限り人間の確認なしで完結させます。人間の承認は、静的ポリシーやサンドボックスだけでは安全に境界づけられない操作に限定します。
 
 ## リポジトリ構成
 
@@ -64,24 +79,21 @@ flowchart LR
 - [セキュリティモデル](docs/ja/03-security-model.md) ([English](docs/03-security-model.md))
 - [導入ガイド](docs/ja/04-adoption-guide.md) ([English](docs/04-adoption-guide.md))
 - [製品マッピング](docs/ja/05-product-mapping.md) ([English](docs/05-product-mapping.md))
-- [Vendor Harness 実装](docs/ja/06-vendor-harnesses.md) ([English](docs/06-vendor-harnesses.md)) — Claude Code / Codex / Devin CLI 向け実装
-- [実装 Decision Log](docs/ja/decision-log.md) ([English](docs/decision-log.md)) — 設計判断、Vendor 制約、将来の再評価条件
-- [DL-011: Sandbox-first Credential Isolation](docs/ja/decisions/DL-011-sandbox-first-credential-isolation.md) ([English](docs/decisions/DL-011-sandbox-first-credential-isolation.md)) — GitHub capability を維持しつつ reusable credential を Agent へ露出しない設計
-- [`AGENTS.md`](AGENTS.md) — Coding Agent 向け開発指示
+- [Vendor Harness 実装](docs/ja/06-vendor-harnesses.md) ([English](docs/06-vendor-harnesses.md))
+- [実装 Decision Log](docs/ja/decision-log.md) ([English](docs/decision-log.md))
+- [DL-011: Sandbox-first Credential Exposure Reduction](docs/ja/decisions/DL-011-sandbox-first-credential-isolation.md)
+- [DL-012: SessionStart Repository Posture](docs/ja/decisions/DL-012-sessionstart-repository-posture.md)
 - [`reference/harness/`](reference/harness/) — Vendor Adapter
-- [`reference/scm_broker/`](reference/scm_broker/) — native credential masking が不足する Vendor 向け Broker fallback
-- [`reference/shims/`](reference/shims/) — Broker 経由 remote operation 用 `git` / `gh` shim
-- [`policy_engine.py`](reference/hooks/policy_engine.py) — ベンダー非依存 Policy Engine
-- [`policy.example.json`](reference/policies/policy.example.json) — ポリシー例
-- [`completion_gate.sh`](reference/scripts/completion_gate.sh) — 完了条件検証
-- [`agent-pod.yaml`](reference/kubernetes/agent-pod.yaml) — Hardening 済み Pod 例
-- [`agent-with-scm-broker.yaml`](reference/kubernetes/agent-with-scm-broker.yaml) — Sandbox-first Credential Isolation 配備例
-- [`network-policy.yaml`](reference/kubernetes/network-policy.yaml) — default-deny NetworkPolicy 例
+- [`reference/posture/`](reference/posture/) — Repository Posture Checker / Cache
+- [`policy.example.json`](reference/policies/policy.example.json) — Semantic Policy
+- [`repository-security.example.json`](reference/policies/repository-security.example.json) — Repository Posture Profile
+- [`preflight.py`](reference/launcher/preflight.py) — Launcher / CI 向け Preflight
+- [`agent-pod.yaml`](reference/kubernetes/agent-pod.yaml) — 1 Container の Hardened Pod Baseline
 
-## 非目標
+## Credential の責務分離
 
-このプロジェクトは、Prompt、[AGENTS.md](AGENTS.md)、CLAUDE.md、Skills、モデルの推論そのものをセキュリティ機構にすることを目的としていません。これらは有効な行動制御ですが、秘密情報、production 環境、protected branch を守るための最終的な強制境界ではありません。
+Baseline では Credential を隠すだけの目的で SCM Broker / Sidecar を追加しません。Sandbox / Local Policy は Exposure を低減し、Short-lived / Repository-scoped Credential と Least-privilege GitHub App / IAM が Compromise を封じ込め、GitHub Ruleset が Protected Branch の Invariant を Server-side で維持します。
 
 ## 基本原則
 
-> 安全な操作は自律実行しやすくし、危険な操作は技術的に不可能にするか、明示的な承認を必要とする。
+> 安全な操作は自律実行しやすくし、危険な環境は早期検出し、重要な Authority Boundary は Model と Credential の双方から独立させる。
