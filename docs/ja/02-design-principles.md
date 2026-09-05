@@ -1,3 +1,5 @@
+[← アーキテクチャ](01-architecture.md) | [English](../02-design-principles.md) | [次: セキュリティモデル →](03-security-model.md)
+
 # 設計原則
 
 ## 1. モデルはいつか誤判断する前提で設計する
@@ -10,7 +12,7 @@ Hook が `rm -rf /` を禁止すると判断するのは Policy です。一方�
 
 ## 3. Soft Control をセキュリティ境界にしない
 
-AGENTS.md、CLAUDE.md、Prompt、Skills、Playbook、Model-generated Plan はすべて行動制御として有効ですが、Secrets、Production、Protected Branch を守る唯一の機構にしてはいけません。
+[AGENTS.md](../../AGENTS.md)、CLAUDE.md、Prompt、Skills、Playbook、Model-generated Plan はすべて行動制御として有効ですが、Secrets、Production、Protected Branch を守る唯一の機構にしてはいけません。
 
 ## 4. Fail-closed を優先する
 
@@ -37,7 +39,7 @@ Agent が `main` に push しないよう依頼するだけでは不十分です
 
 ## 8. Completion は Predicate として定義する
 
-「完了」は会話上の自信ではなく、機械検証可能な Predicate とします。Tests、Git State、CI State、PR State、Deployment Evidence は model memory の外に置きます。
+「完了」は会話上の自信ではなく、機械検証可能な Predicate とします。Tests、Git State、CI State、PR State、Deployment Evidence は model memory の外に置きます。実装例は [`completion_gate.sh`](../../reference/scripts/completion_gate.sh) を参照してください。
 
 ## 9. Vendor Adapter は薄く保つ
 
@@ -57,7 +59,7 @@ Agent が `main` に push しないよう依頼するだけでは不十分です
 }
 ```
 
-中央 Policy Engine は vendor-neutral decision を返し、Claude Code / Codex / Devin CLI の Adapter が native schema に変換します。
+中央 Policy Engine は vendor-neutral decision を返し、Claude Code / Codex / Devin CLI の Adapter が native schema に変換します。リファレンス実装は [`policy_engine.py`](../../reference/hooks/policy_engine.py) と [`pre_tool_use_adapter.py`](../../reference/hooks/pre_tool_use_adapter.py) です。
 
 ## 10. Policy Decision を観測可能にする
 
@@ -70,3 +72,7 @@ Turn 数、Wall-clock、Tool call、Token / Compute Cost、Repeated Failure に 
 ## 12. Cloud Handoff は Trust Boundary Transition として扱う
 
 Local から Cloud への Handoff は、Execution Environment、Credential、Network Control、Data Residency が変化する境界です。Local Policy がそのまま Cloud に適用されると仮定せず、再認可します。
+
+---
+
+[← アーキテクチャ](01-architecture.md) | [English](../02-design-principles.md) | [次: セキュリティモデル →](03-security-model.md)
