@@ -4,43 +4,60 @@
 
 ## 1. 目的
 
-自律型コーディングエージェントは、リポジトリ調査、隔離された worktree の作成、コード変更、検証、commit、feature branch への push、PR 作成までを、できる限り人間の介入なしで実行できることが望まれます。ただし、自律性は無制限な権限を意味しません。
+自律型 Coding Agent は、Repository 調査、Worktree 作成、Code 変更、検証、Commit、Feature Branch Push、PR 作成までをできる限り人間の介入なしで実行できることを目指します。ただし自律性は無制限な Authority を意味せず、Deployment は Threat Model が許す範囲でできるだけ単純に保ちます。
 
 ## 2. Control Plane と Execution Plane
-
-ポリシー判断と実行能力を分離します。
 
 ```mermaid
 flowchart TB
     subgraph CP[Control Plane]
         T[Task / Queue] --> O[Orchestrator]
-        O --> P[Policy Engine]
+        O --> SS[SessionStart Posture Check]
+        SS --> P[Policy Engine]
+        O --> P
         P --> A[Approval Gateway]
         P --> OT[Audit / OTel]
-        A --> OT
     end
 
     subgraph EP[Execution Plane]
         R[Agent Runtime / Session] --> W[Worktree]
         W --> PR[Permissions / Rules]
         PR --> S[OS Sandbox]
-        S --> K[Kubernetes Pod]
+        S --> K[Single Agent Container / Pod]
         K --> N[Network / IAM / SCM]
+        N --> GH[GitHub / External Systems]
+        GH --> RS[Server-side Rulesets]
     end
 
     O --> R
 ```
 
-Control Plane は「何を許可するか」を決めます。Execution Plane は「技術的に何が可能か」を制限します。あるレイヤーが壊れても、別レイヤーの権限まで暗黙に拡大しない構造にします。
+Control Plane は「何を許可するか」、Execution Plane は「技術的に何が可能か」を制御します。Repository Posture は外部 Security Assumption が現在も成立しているかを検出します。あるレイヤーが壊れても、別レイヤーの Authority を暗黙に獲得できないようにします。
 
-## 3. 状態機械として扱う
+## 3. Mutation 前の Repository Posture
 
-自律作業は自由形式のチャットループではなく、明示的な状態機械として扱います。
+`SessionStart` で Repository を特定し、GitHub-side Control を評価します。各 Check は `pass` / `fail` / `unknown` に正規化し、`READY` / `RESTRICTED` / `BLOCKED` を導出します。
+
+```mermaid
+stateDiagram-v2
+    [*] --> CHECKING
+    CHECKING --> READY: Required Control を確認
+    CHECKING --> RESTRICTED: restricted mode で未確認/未達
+    CHECKING --> BLOCKED: strict failure または invalid policy
+    RESTRICTED --> READY: remediation + recheck
+```
+
+`RESTRICTED` では Repository 調査、Source Edit、Test、Local Commit を継続できますが、`git push` や `gh pr create` などの Remote Mutation は deny します。`BLOCKED` では mutation を deny します。Posture は Session 単位で TTL 付き Cache に保存し、Active Repository が変わった場合や stale な状態で Remote Trust Boundary を越えようとした場合に再検証します。
+
+`.agent-harness/security.json` がない場合は built-in `restricted` default を利用し、明示的 Policy が invalid な場合は `BLOCKED` とします。
+
+## 4. State Machine
 
 ```mermaid
 stateDiagram-v2
     [*] --> RECEIVED
-    RECEIVED --> DISCOVERING
+    RECEIVED --> CHECKING_POSTURE
+    CHECKING_POSTURE --> DISCOVERING
     DISCOVERING --> PLANNING
     PLANNING --> MUTATING
     MUTATING --> VERIFYING
@@ -51,90 +68,56 @@ stateDiagram-v2
     WAITING_FOR_CI --> COMPLETE
     COMPLETE --> [*]
 
-    RECEIVED --> BLOCKED
-    DISCOVERING --> BLOCKED
+    CHECKING_POSTURE --> BLOCKED
+    COMMITTING --> RESTRICTED
+    RESTRICTED --> PUBLISHING: Posture READY
     PLANNING --> NEEDS_APPROVAL
     MUTATING --> NEEDS_APPROVAL
     VERIFYING --> FAILED
-    COMMITTING --> FAILED
-    PUBLISHING --> FAILED
 ```
 
-状態はモデルのコンテキスト外に永続化します。Context compaction、プロセス再起動、モデル切替、subagent 実行が発生しても、タスクの正本となる状態を失わないことが重要です。
+Authoritative Task State は Model Context の外に保持します。Compaction、Process Restart、Model Switch、Subagent 実行で Security / Workflow State を失わないようにします。
 
-## 4. Worktree モデル
+## 5. Worktree Model
 
-変更を伴うタスクごとに 1 worktree を割り当てます。元の checkout は安定した control checkout として扱います。
+Mutable Task ごとに 1 Worktree を使い、Original Checkout は Stable Control Checkout として扱います。
 
 ```mermaid
 flowchart LR
-    C[/repo/control<br/>原則 read-only/] --> T1[/worktrees/task-123<br/>タスク専用 writable workspace/]
-    C --> T2[/worktrees/task-456<br/>タスク専用 writable workspace/]
+    C[/repo/control/] --> T1[/worktrees/task-123/]
+    C --> T2[/worktrees/task-456/]
 ```
 
-推奨ルール:
+Commit / Remote Publication 前に Active Repository / Worktree / Branch を検証します。Protected Default Branch への Direct Push は禁止します。異なる Repository へ Session が移動した場合は Posture Cache を再評価し、同一 Repository 内の Worktree 移動は継続してサポートします。
 
-- 調査は control checkout で実施してよい。
-- 最初の変更前に `feature/<task-id>-<slug>` を作成する。
-- 書き込みはすべてタスク worktree 内で行う。
-- commit / push 前に repository / worktree / branch を再検証する。
-- protected default branch への直接 push は許可しない。
-- durable な状態と成果物を保存してから worktree を削除する。
+## 6. Credential / Authority Model
 
-## 5. Approval Gateway
+Baseline は **1 Pod / 1 Agent Container** です。具体的な Threat Model が要求しない限り、Credential を隠すだけの目的で SCM Broker、Sidecar、Command Shim を導入しません。
 
-承認は通常フローではなく、権限境界を越える場合の escalation path とします。
+Sandbox / Local Policy は Credential Exposure を低減しますが、Credential Compromise は起こり得る Failure Mode とします。Short-lived / Repository-scoped Credential、Least-privilege GitHub App / IAM、Server-side Repository Rule で Blast Radius を制限します。詳細は [DL-011](decisions/DL-011-sandbox-first-credential-isolation.md) を参照してください。
 
-Policy Engine の基本結果は 3 種類です。
+## 7. Approval Gateway
 
-- `allow`: 制約内の通常操作
-- `deny`: 不変条件に違反するため拒否
-- `ask`: 正当な可能性はあるが外部承認が必要
+`allow` は Bound された Routine Operation、`deny` は Invariant 違反、`ask` は External Authorization が必要な操作です。Session 全体を unrestricted mode にするより、単一 Semantic Action へ短時間・狭い Scope の承認を与えます。
 
-承認要求には、task/session ID、actor、tool、command/action、target、repository、branch、reason、risk class、scope、expiry などの正規化された情報を含めます。
+## 8. Completion Pipeline
 
-セッション全体を unrestricted mode に切り替えるより、単一の semantic action に対して短時間・狭い範囲の承認を与える方が安全です。
+Model が「完了した」と発言することは証拠ではありません。Deterministic Gate で Worktree / Branch、Required Test、Lint / Type Check、Commit / PR / CI 等の Task-specific Invariant を確認します。Stop Hook から利用できますが、Retry / Time / Tool / Cost Circuit Breaker は Orchestrator に持たせます。
 
-## 6. Completion Pipeline
+## 9. Kubernetes Deployment Baseline
 
-モデルが「完了した」と発言すること自体は、完了の証拠になりません。決定的な Completion Gate で、例えば以下を確認します。
+Threat Model が要求しない限り、最小の Secure Baseline を採用します。
 
-1. 期待する worktree / branch であること
-2. 不要な dirty file / untracked artifact がないこと
-3. 必須テストが成功していること
-4. lint / type check が成功していること
-5. 必要な commit が存在すること
-6. remote feature branch が存在すること
-7. PR が存在し、期待する base branch を向いていること
-8. 必須 CI/check が成功していること
-9. 必要な metadata / evidence が保存されていること
-
-実装例は [`completion_gate.sh`](../../reference/scripts/completion_gate.sh) を参照してください。Stop hook からこの Gate を利用して premature completion を拒否できます。ただし retry loop が無限化しないよう、Orchestrator 側に circuit breaker を設けます。
-
-## 7. Subagent
-
-Subagent は context isolation や並列調査には有効ですが、セキュリティ境界ではありません。Subagent には明示的な scope と、可能なら縮小した権限を与えます。最終的な状態統合と global policy enforcement は親 Orchestrator が担います。
-
-## 8. Kubernetes 配備の基準
-
-最低限、以下を推奨します。
-
-- non-root container
-- privileged mode 禁止
-- hostPath 禁止
-- Docker / container runtime socket 非公開
-- Linux capabilities を drop
-- seccomp `RuntimeDefault`
-- 可能な範囲で read-only root filesystem
-- ephemeral task workspace
-- resource requests / limits
-- default-deny NetworkPolicy + 明示的 egress path
-- static cloud key ではなく workload identity
-- repository-scoped / short-lived SCM credential
+- 1 Pod / 1 Agent Container
+- non-root、privileged 禁止、hostPath / runtime socket 禁止
+- Linux Capability drop、seccomp `RuntimeDefault`
+- 可能なら read-only root filesystem
+- ephemeral task workspace と明示的 Resource Limit
+- Environment に応じた Network Control
+- Short-lived / Least-privilege Cloud / SCM Credential
+- GitHub Rulesets / Branch Protection を Authoritative SCM Enforcement とする
 
 リファレンス: [`agent-pod.yaml`](../../reference/kubernetes/agent-pod.yaml) / [`network-policy.yaml`](../../reference/kubernetes/network-policy.yaml)
-
-Agent 内蔵 sandbox と Pod isolation は競合するのではなく補完関係です。Pod は host/process/resource isolation、Agent Sandbox は tool execution 単位の filesystem/network capability boundary を担います。
 
 ---
 
