@@ -34,11 +34,6 @@
       "id": "git-force-push",
       "command_regex": "(?i)\\bgit\\s+push\\b[^\\n]*(--force(?:-with-lease)?|-f)(?:\\s|$)",
       "reason": "Force push is prohibited for autonomous sessions."
-    },
-    {
-      "id": "protected-branch-push",
-      "command_regex": "(?i)\\bgit\\s+push\\b[^\\n]*(?:\\s|:)(main|master)(?:\\s|$)",
-      "reason": "Direct push to a protected default branch is prohibited."
     }
   ],
   "ask": [
@@ -79,28 +74,33 @@
     {
       "id": "read-only-shell",
       "tool_regex": "(?i)^(Bash|exec|shell)$",
-      "command_regex": "(?i)^\\s*(pwd|ls|find|rg|grep|cat|head|tail|wc|stat|file|tree)(?:\\s|$)",
-      "reason": "Common read-only repository inspection is allowed."
+      "command_regex": "(?i)^\\s*(pwd|ls|find|rg|grep|cat|head|tail|wc|stat|file|tree)(?:\\s+[^;&|<>\\n]*)?\\s*$",
+      "reason": "A single common read-only repository inspection command is allowed."
     },
     {
       "id": "read-only-git",
-      "command_regex": "(?i)^\\s*git\\s+(status|diff|log|show|branch|rev-parse|worktree\\s+list)(?:\\s|$)",
-      "reason": "Read-only Git inspection is allowed."
+      "command_regex": "(?i)^\\s*git\\s+(status|diff|log|show|branch|rev-parse|worktree\\s+list)(?:\\s+[^;&|<>\\n]*)?\\s*$",
+      "reason": "A single read-only Git inspection command is allowed."
     },
     {
       "id": "feature-git-mutation",
-      "command_regex": "(?i)^\\s*git\\s+(add|commit|checkout|switch|restore|worktree\\s+add|push)(?:\\s|$)",
-      "reason": "Routine feature-branch Git operations are allowed; deny rules and repository posture protect remote authority boundaries."
+      "command_regex": "(?i)^\\s*git\\s+(add|commit|checkout|switch|restore|worktree\\s+add)(?:\\s+[^;&|<>\\n]*)?\\s*$",
+      "reason": "Routine local feature-branch Git operations are allowed."
+    },
+    {
+      "id": "canonical-git-push",
+      "command_regex": "(?i)^\\s*git\\s+push(?:\\s+--set-upstream\\s+origin\\s+HEAD)?\\s*$",
+      "reason": "Only the canonical push forms are autonomous; semantic validation confirms repository, branch and upstream."
     },
     {
       "id": "verification",
-      "command_regex": "(?i)^\\s*(python\\s+-m\\s+pytest|pytest|ruff|mypy|npm\\s+(test|run\\s+(test|lint|typecheck))|pnpm\\s+(test|lint)|yarn\\s+(test|lint)|go\\s+test|cargo\\s+test)(?:\\s|$)",
-      "reason": "Verification commands are allowed."
+      "command_regex": "(?i)^\\s*(python\\s+-m\\s+pytest|pytest|ruff|mypy|npm\\s+(test|run\\s+(test|lint|typecheck))|pnpm\\s+(test|lint)|yarn\\s+(test|lint)|go\\s+test|cargo\\s+test)(?:\\s+[^;&|<>\\n]*)?\\s*$",
+      "reason": "A single verification command is allowed."
     },
     {
       "id": "pr-publish",
-      "command_regex": "(?i)^\\s*gh\\s+pr\\s+(create|view|status|checks)(?:\\s|$)",
-      "reason": "PR creation and inspection are allowed when repository posture permits remote mutation."
+      "command_regex": "(?i)^\\s*gh\\s+pr\\s+(create|view|status|checks)(?:\\s+[^;&|<>\\n]*)?\\s*$",
+      "reason": "PR creation and inspection are allowed when repository posture and semantic validation permit them."
     }
   ]
 }
