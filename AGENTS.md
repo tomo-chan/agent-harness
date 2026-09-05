@@ -14,6 +14,7 @@ Before making non-trivial changes, read:
 4. [Security Model](docs/03-security-model.md) ([日本語](docs/ja/03-security-model.md))
 5. [Adoption Guide](docs/04-adoption-guide.md) ([日本語](docs/ja/04-adoption-guide.md))
 6. [Product Mapping](docs/05-product-mapping.md) ([日本語](docs/ja/05-product-mapping.md))
+7. [Implementation Decision Log](docs/decision-log.md) ([日本語](docs/ja/decision-log.md))
 
 ## Core invariants
 
@@ -55,12 +56,26 @@ Separate the control plane from the execution plane. Durable task state, policy 
 
 - [`docs/`](docs/) — English architecture/design/security/adoption documentation
 - [`docs/ja/`](docs/ja/) — Japanese documentation corresponding to `docs/`
+- [`docs/decision-log.md`](docs/decision-log.md) — implementation decisions and upgrade/revisit triggers
 - [`reference/hooks/`](reference/hooks/) — policy engine and vendor adapter examples
+- [`reference/harness/`](reference/harness/) — vendor-specific harness adapters
 - [`reference/policies/`](reference/policies/) — policy examples
 - [`reference/scripts/`](reference/scripts/) — deterministic lifecycle/completion utilities
 - [`reference/kubernetes/`](reference/kubernetes/) — workload and network-isolation examples
 
 When changing an English architecture document, update the corresponding Japanese document in the same change where practical. Keep terminology and architectural meaning aligned; the Japanese version does not need to be a literal translation.
+
+## Decision log requirements
+
+Record implementation decisions in [docs/decision-log.md](docs/decision-log.md) and keep the Japanese counterpart aligned when the change:
+
+- selects one architectural alternative over another;
+- introduces a workaround for a vendor limitation, missing capability, or bug;
+- changes a trust boundary, failure mode, approval path, or security invariant;
+- deliberately leaves a capability unimplemented because the current tool cannot support it safely; or
+- can likely be simplified or improved by a future Claude Code, Codex, Devin CLI, Kubernetes, SCM, or other dependency update.
+
+For vendor/version-sensitive decisions, record the current limitation, chosen workaround, consequence, and an explicit **revisit trigger / upgrade path**. When the limitation disappears, do not delete history: mark the old entry `Superseded` and add or link the replacement decision.
 
 ## Development rules
 
@@ -75,10 +90,10 @@ When changing an English architecture document, update the corresponding Japanes
 
 ## Testing
 
-For changes to [`reference/hooks/`](reference/hooks/), run:
+For changes to [`reference/hooks/`](reference/hooks/) or [`reference/harness/`](reference/harness/), run:
 
 ```bash
-python -m pytest reference/hooks/tests -q
+python -m pytest reference/hooks/tests reference/harness/tests -q
 ```
 
 Add or update tests for policy behavior. At minimum, preserve coverage for:
@@ -87,7 +102,8 @@ Add or update tests for policy behavior. At minimum, preserve coverage for:
 - force-push denial;
 - protected/default-branch push denial;
 - approval-required operations;
-- unknown-operation default behavior.
+- unknown-operation default behavior;
+- vendor adapter translations for allow/ask/deny semantics.
 
 If a change modifies a security invariant, add a regression test when the invariant is machine-testable.
 
@@ -132,6 +148,7 @@ A change is complete only when all applicable conditions are true:
 - relevant tests pass;
 - security invariants remain intact;
 - English/Japanese documentation is synchronized when applicable;
+- implementation decisions and vendor workarounds are recorded in the Decision Log when applicable;
 - Git state contains only intended changes;
 - no credentials or sensitive artifacts were introduced;
 - any vendor-specific behavior added or changed is documented with its assumptions.
