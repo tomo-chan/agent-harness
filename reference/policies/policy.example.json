@@ -40,8 +40,8 @@
     {
       "id": "harness-config-change",
       "tool_regex": "(?i)^(Write|Edit|write|edit|multi_edit)$",
-      "path_regex": "(^|/)(\\.agent-harness/|\\.claude/|\\.codex/|\\.devin/|\\.github/workflows/|reference/harness/|reference/hooks/|reference/posture/|reference/policies/|AGENTS\\.md$)",
-      "reason": "Changing agent, posture, policy, or CI control files requires explicit approval."
+      "path_regex": "(^|/)(\\.agent-harness/|\\.claude/|\\.codex/|\\.devin/|\\.github/workflows/|reference/harness/|reference/hooks/|reference/posture/|reference/policies/|reference/application_gate/|AGENTS\\.md$)",
+      "reason": "Changing agent, posture, policy, application architecture gate, or CI control files requires explicit approval."
     },
     {
       "id": "scm-merge-release",
