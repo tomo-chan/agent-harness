@@ -31,6 +31,11 @@ def test_pr_merge_requires_approval():
     assert engine().evaluate(action("gh pr merge 42 --squash")).decision == "ask"
 
 
+def test_credential_extraction_is_denied():
+    assert engine().evaluate(action("gh auth token")).decision == "deny"
+    assert engine().evaluate(action("cat ~/.git-credentials")).decision == "deny"
+
+
 def test_unknown_action_defaults_to_approval():
     assert engine().evaluate(action("some-new-tool --mutate")).decision == "ask"
 
@@ -43,6 +48,15 @@ def test_outside_workspace_write_is_denied():
 def test_workspace_write_is_allowed():
     value = {"tool": "Write", "input": {"file_path": "src/app.py"}, "context": {"cwd": "/repo"}}
     assert engine().evaluate(value).decision == "allow"
+
+
+def test_repository_security_config_requires_approval():
+    value = {
+        "tool": "Write",
+        "input": {"file_path": ".agent-harness/security.json"},
+        "context": {"cwd": "/repo"},
+    }
+    assert engine().evaluate(value).decision == "ask"
 
 
 def test_invalid_policy_fails_validation():
