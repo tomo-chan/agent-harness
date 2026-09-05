@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install pytest
-      - run: python -m pytest reference/hooks/tests reference/harness/tests reference/scm_broker/tests -q
+      - run: python -m pytest reference/hooks/tests reference/harness/tests reference/posture/tests -q
       - name: Validate JSON configuration
         run: |
           python -m json.tool .claude/settings.json >/dev/null
@@ -26,3 +26,4 @@ jobs:
           python -m json.tool .devin/config.json >/dev/null
           python -m json.tool reference/claude/managed-settings.example.json >/dev/null
           python -m json.tool reference/policies/policy.example.json >/dev/null
+          python -m json.tool reference/policies/repository-security.example.json >/dev/null
