@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "name": "agent-harness-application",
+  "checks": [
+    {
+      "id": "architecture-doc-required",
+      "type": "path_exists",
+      "path": "docs/07-application-architecture.md"
+    },
+    {
+      "id": "architecture-principles-required",
+      "type": "path_exists",
+      "path": "docs/08-application-design-principles.md"
+    },
+    {
+      "id": "architecture-gate-implementation-required",
+      "type": "path_exists",
+      "path": "reference/application_gate/gate.py"
+    },
+    {
+      "id": "architecture-gate-tests-required",
+      "type": "path_exists",
+      "path": "reference/application_gate/tests/test_gate.py"
+    },
+    {
+      "id": "broker-not-in-baseline",
+      "type": "path_absent",
+      "path": "reference/scm_broker"
+    },
+    {
+      "id": "application-layer-described-as-deterministic",
+      "type": "file_contains_regex",
+      "path": "docs/07-application-architecture.md",
+      "pattern": "deterministic architecture gate"
+    },
+    {
+      "id": "llm-review-not-authoritative",
+      "type": "file_contains_regex",
+      "path": "docs/08-application-design-principles.md",
+      "pattern": "LLM review.*not.*authoritative|not authoritative.*LLM review"
+    }
+  ],
+  "waivers": []
+}
