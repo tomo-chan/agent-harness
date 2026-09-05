@@ -1,3 +1,5 @@
+[← Architecture](01-architecture.md) | [日本語](ja/02-design-principles.md) | [Next: Security Model →](03-security-model.md)
+
 # Design Principles
 
 ## 1. Assume the model will eventually make a bad decision
@@ -10,7 +12,7 @@ A hook deciding that `rm -rf /` is forbidden is policy. A sandbox making `/` non
 
 ## 3. Soft controls are not security boundaries
 
-AGENTS.md, CLAUDE.md, prompts, Skills, playbooks and model-generated plans are behavioral inputs. They improve reliability but must never be the sole mechanism protecting credentials, production systems or protected branches.
+[AGENTS.md](../AGENTS.md), CLAUDE.md, prompts, Skills, playbooks and model-generated plans are behavioral inputs. They improve reliability but must never be the sole mechanism protecting credentials, production systems or protected branches.
 
 ## 4. Prefer fail-closed enforcement
 
@@ -37,7 +39,7 @@ Do not rely on the agent to avoid pushing to `main`. Make direct pushes impossib
 
 ## 8. Completion is a predicate
 
-Define "done" as machine-checkable predicates rather than conversational confidence. Tests, Git state, CI state, PR state and deployment evidence belong outside model memory.
+Define "done" as machine-checkable predicates rather than conversational confidence. Tests, Git state, CI state, PR state and deployment evidence belong outside model memory. See the reference [`completion_gate.sh`](../reference/scripts/completion_gate.sh).
 
 ## 9. Keep vendor adapters thin
 
@@ -57,7 +59,7 @@ Normalize vendor lifecycle events into a small internal contract such as:
 }
 ```
 
-The central policy engine should return a vendor-neutral decision. Claude Code, Codex and Devin adapters translate to/from their native hook schemas.
+The central policy engine should return a vendor-neutral decision. Claude Code, Codex and Devin adapters translate to/from their native hook schemas. See [`policy_engine.py`](../reference/hooks/policy_engine.py) and [`pre_tool_use_adapter.py`](../reference/hooks/pre_tool_use_adapter.py).
 
 ## 10. Make policy observable
 
@@ -70,3 +72,7 @@ Use budgets for turns, wall-clock time, tool calls, token/compute cost and repea
 ## 12. Treat cloud handoff as a trust-boundary transition
 
 A local-to-cloud handoff changes execution environment, credentials, network controls and data residency. Re-evaluate authorization rather than assuming local policy automatically applies in the cloud environment.
+
+---
+
+[← Architecture](01-architecture.md) | [日本語](ja/02-design-principles.md) | [Next: Security Model →](03-security-model.md)
