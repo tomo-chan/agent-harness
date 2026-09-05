@@ -8,34 +8,18 @@ This repository turns the operational lessons from Claude Code, OpenAI Codex, an
 
 ## Architecture
 
-```text
-Instructions / AGENTS.md / Skills
-              |
-              v
-        Agent Runtime
-              |
-        lifecycle hooks
-              v
-       Policy Engine
-       /     |      \
-    allow   ask     deny
-      |      |        |
-      |   Approval    +--> stop
-      |   Gateway
-      v
- Permissions / Rules
-              |
-              v
-          OS Sandbox
-              |
-              v
-       Container / Pod
-              |
-              v
-    IAM / SCM / Cloud Policy
-              |
-              v
-       External Systems
+```mermaid
+flowchart TD
+    A[Instructions / AGENTS.md / Skills] --> B[Agent Runtime]
+    B -->|lifecycle hooks| C[Policy Engine]
+    C -->|allow| D[Permissions / Rules]
+    C -->|ask| E[Approval Gateway]
+    C -->|deny| X[Stop]
+    E --> D
+    D --> F[OS Sandbox]
+    F --> G[Container / Pod]
+    G --> H[IAM / SCM / Cloud Policy]
+    H --> I[External Systems]
 ```
 
 The layers have deliberately different responsibilities:
@@ -53,19 +37,22 @@ The layers have deliberately different responsibilities:
 
 ## Standard autonomous flow
 
-```text
-Task
- -> inspect repository (read-only)
- -> create feature worktree/branch if mutation is required
- -> plan
- -> edit
- -> test/lint/type-check
- -> policy/completion gate
- -> commit
- -> push feature branch
- -> create PR
- -> CI / review
- -> merge by protected server-side workflow
+```mermaid
+flowchart LR
+    T[Task] --> I[Inspect repository<br/>read-only]
+    I --> W{Mutation required?}
+    W -->|yes| B[Create feature<br/>worktree / branch]
+    W -->|no| V[Verify result]
+    B --> P[Plan]
+    P --> E[Edit]
+    E --> Q[Test / lint / type-check]
+    Q --> G[Policy / completion gate]
+    G --> C[Commit]
+    C --> U[Push feature branch]
+    U --> R[Create PR]
+    R --> CI[CI / review]
+    CI --> M[Protected server-side merge]
+    V --> M
 ```
 
 The agent should normally be able to perform routine work without human interaction. Human approval is reserved for operations whose risk cannot be bounded safely by static policy or sandboxing.
