@@ -4,6 +4,8 @@
 
 This log records implementation decisions that materially shape the harness, especially decisions caused by current vendor limitations. Entries marked **Revisit on vendor change** must be re-evaluated when the corresponding tool adds or changes relevant capabilities.
 
+Detailed decision records may live under [`docs/decisions/`](decisions/). Current detailed record: [DL-011 — Sandbox-first credential isolation](decisions/DL-011-sandbox-first-credential-isolation.md).
+
 ## Status vocabulary
 
 - **Accepted** — current design decision.
@@ -109,6 +111,17 @@ This log records implementation decisions that materially shape the harness, esp
 - Rationale: Hook failure semantics and coverage vary by vendor/version. External capability boundaries remain effective even when the model or hook layer fails.
 - Consequence: Production deployment still requires sandboxing, container/Pod hardening, egress controls, short-lived IAM/SCM credentials, and server-side rulesets.
 - Revisit trigger: No vendor feature should supersede this without an explicit threat-model review.
+
+## DL-011 — Sandbox-first credential isolation
+
+Detailed record: [DL-011 — Sandbox-first credential isolation](decisions/DL-011-sandbox-first-credential-isolation.md).
+
+- Date: 2026-09-05
+- Status: Accepted; Revisit on vendor change
+- Scope: Claude Code / Codex / Devin CLI / SCM authentication
+- Decision: Prefer native sandbox credential masking/mediation. Only use a narrow SCM broker when the current vendor sandbox cannot preserve credential confidentiality while retaining required `git` / `gh` capability.
+- Security invariant: The agent may possess GitHub capability but must not possess reusable GitHub credentials as readable data.
+- Upgrade path: Remove the broker for any vendor that gains a sufficiently strong native credential-masking or first-class authenticated SCM capability.
 
 ## Maintenance rule
 
