@@ -2,7 +2,7 @@
 
 # 製品マッピング
 
-このプロジェクトでは、ベンダー非依存の内部モデルを採用します。各製品の機能をそのままアーキテクチャに持ち込むのではなく、共通の責務レイヤーへマッピングします。共通モデルは[リファレンスアーキテクチャ](01-architecture.md)と[設計原則](02-design-principles.md)を参照してください。
+このプロジェクトでは、ベンダー非依存の内部モデルを採用します。各製品の機能をそのままアーキテクチャに持ち込むのではなく、共通の責務レイヤーへマッピングします。[リファレンスアーキテクチャ](01-architecture.md) と [設計原則](02-design-principles.md) も参照してください。
 
 | 関心事 | Claude Code | OpenAI Codex | Devin CLI |
 |---|---|---|---|
@@ -27,7 +27,7 @@ Claude Code は lifecycle hook の種類が多く、semantic orchestration を�
 
 ## Codex
 
-公式ドキュメント: [OpenAI Codex documentation](https://developers.openai.com/codex/) / [Codex GitHub repository](https://github.com/openai/codex)
+公式ドキュメント: [OpenAI Codex documentation](https://developers.openai.com/codex/) / [Codex open-source repository](https://github.com/openai/codex)
 
 Codex は Sandbox、Approval Policy、Rules、Managed Configuration、Telemetry の責務分離が明確で、外部 Harness を設計する際の参考になります。App Server を使う構成では Tool Approval を structured control-plane event として扱いやすくなります。ただし Hook の failure semantics は version ごとに確認し、Hard Invariant は独立した boundary で保護します。
 
@@ -41,17 +41,19 @@ Devin CLI は Permissions と Sandbox Scope の結びつきが強く、Autonomou
 
 内部では以下の flow に統一します。
 
-```text
-Vendor event
-   -> Adapter
-   -> Normalized Action
-   -> Policy Engine
-   -> allow / ask / deny (+ reason/context)
-   -> Adapter
-   -> Vendor response
+```mermaid
+flowchart LR
+    V[Vendor event] --> A1[Vendor Adapter]
+    A1 --> N[Normalized Action]
+    N --> P[Policy Engine]
+    P --> D{Decision}
+    D -->|allow| A2[Vendor Adapter]
+    D -->|ask| A2
+    D -->|deny| A2
+    A2 --> R[Vendor response]
 ```
 
-リファレンス実装は [`policy_engine.py`](../../reference/hooks/policy_engine.py) と [`pre_tool_use_adapter.py`](../../reference/hooks/pre_tool_use_adapter.py) です。
+リファレンス実装は [`policy_engine.py`](../../reference/hooks/policy_engine.py) と [`pre_tool_use_adapter.py`](../../reference/hooks/pre_tool_use_adapter.py) を参照してください。
 
 すべての Vendor Feature を完全に抽象化する必要はありません。組織側が所有すべき Security / Orchestration Semantics だけを正規化し、各製品固有の有用な機能は Adapter の背後に残します。
 
