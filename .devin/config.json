@@ -2,10 +2,17 @@
   "permissions": {
     "deny": [
       "Read(.env*)",
+      "Read(~/.config/gh/**)",
+      "Read(~/.git-credentials)",
+      "Read(~/.ssh/**)",
       "Write(.env*)",
       "Write(.git/**)",
       "Exec(sudo)",
-      "Exec(git push --force)"
+      "Exec(git push --force)",
+      "Exec(git credential)",
+      "Exec(gh auth)",
+      "Exec(gh api)",
+      "Exec(gh extension)"
     ],
     "ask": [
       "Exec(gh pr merge)",
@@ -20,6 +27,9 @@
       "Write(**)",
       "Exec(git)",
       "Exec(gh pr create)",
+      "Exec(gh pr view)",
+      "Exec(gh pr status)",
+      "Exec(gh pr checks)",
       "Exec(pytest)",
       "Exec(python -m pytest)",
       "Exec(ruff)",
