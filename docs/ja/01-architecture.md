@@ -10,25 +10,25 @@
 
 ポリシー判断と実行能力を分離します。
 
-```text
-                         CONTROL PLANE
- Task/Queue --> Orchestrator --> Policy Engine --> Approval Gateway
-                    |               |                  |
-                    |               +--> Audit/OTel <--+
-                    |
-                    v
-                         EXECUTION PLANE
-                Agent Runtime / Session
-                         |
-                    Worktree
-                         |
-              Permissions / Rules
-                         |
-                    OS Sandbox
-                         |
-                 Kubernetes Pod
-                         |
-              Network / IAM / SCM
+```mermaid
+flowchart TB
+    subgraph CP[Control Plane]
+        T[Task / Queue] --> O[Orchestrator]
+        O --> P[Policy Engine]
+        P --> A[Approval Gateway]
+        P --> OT[Audit / OTel]
+        A --> OT
+    end
+
+    subgraph EP[Execution Plane]
+        R[Agent Runtime / Session] --> W[Worktree]
+        W --> PR[Permissions / Rules]
+        PR --> S[OS Sandbox]
+        S --> K[Kubernetes Pod]
+        K --> N[Network / IAM / SCM]
+    end
+
+    O --> R
 ```
 
 Control Plane は「何を許可するか」を決めます。Execution Plane は「技術的に何が可能か」を制限します。あるレイヤーが壊れても、別レイヤーの権限まで暗黙に拡大しない構造にします。
@@ -37,19 +37,27 @@ Control Plane は「何を許可するか」を決めます。Execution Plane �
 
 自律作業は自由形式のチャットループではなく、明示的な状態機械として扱います。
 
-```text
-RECEIVED
-  -> DISCOVERING
-  -> PLANNING
-  -> MUTATING
-  -> VERIFYING
-  -> COMMITTING
-  -> PUBLISHING
-  -> PR_OPEN
-  -> WAITING_FOR_CI
-  -> COMPLETE
+```mermaid
+stateDiagram-v2
+    [*] --> RECEIVED
+    RECEIVED --> DISCOVERING
+    DISCOVERING --> PLANNING
+    PLANNING --> MUTATING
+    MUTATING --> VERIFYING
+    VERIFYING --> COMMITTING
+    COMMITTING --> PUBLISHING
+    PUBLISHING --> PR_OPEN
+    PR_OPEN --> WAITING_FOR_CI
+    WAITING_FOR_CI --> COMPLETE
+    COMPLETE --> [*]
 
-Any state -> BLOCKED / NEEDS_APPROVAL / FAILED
+    RECEIVED --> BLOCKED
+    DISCOVERING --> BLOCKED
+    PLANNING --> NEEDS_APPROVAL
+    MUTATING --> NEEDS_APPROVAL
+    VERIFYING --> FAILED
+    COMMITTING --> FAILED
+    PUBLISHING --> FAILED
 ```
 
 状態はモデルのコンテキスト外に永続化します。Context compaction、プロセス再起動、モデル切替、subagent 実行が発生しても、タスクの正本となる状態を失わないことが重要です。
@@ -58,10 +66,10 @@ Any state -> BLOCKED / NEEDS_APPROVAL / FAILED
 
 変更を伴うタスクごとに 1 worktree を割り当てます。元の checkout は安定した control checkout として扱います。
 
-```text
-/repo/control               # 原則 read-only
-/worktrees/task-123         # タスク専用 writable workspace
-/worktrees/task-456
+```mermaid
+flowchart LR
+    C[/repo/control<br/>原則 read-only/] --> T1[/worktrees/task-123<br/>タスク専用 writable workspace/]
+    C --> T2[/worktrees/task-456<br/>タスク専用 writable workspace/]
 ```
 
 推奨ルール:
