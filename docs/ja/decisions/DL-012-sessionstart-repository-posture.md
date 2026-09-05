@@ -6,53 +6,79 @@
 
 ## 判断
 
-`SessionStart` で Repository Security Posture を検証し、正規化した結果を session state として cache します。Remote SCM mutation の直前には、cache が stale なら再検証します。
+`SessionStart` で Repository Security Posture を検証し、正規化した結果を Session State として Cache します。Remote SCM Mutation の直前には、Cache が stale なら再検証します。
 
-Checker は local repository identity と GitHub-side control（required pull request、non-fast-forward protection、required status checks 等）を確認します。各 check は `pass` / `fail` / `unknown`、session posture は `READY` / `RESTRICTED` / `BLOCKED` の3状態で表現します。
+Checker は Repository Identity と GitHub-side Control（Required Pull Request、Non-fast-forward Protection、Required Status Checks 等）を確認します。各 Check は `pass` / `fail` / `unknown`、Session Posture は `READY` / `RESTRICTED` / `BLOCKED` の3状態で表現します。
 
 ```mermaid
 flowchart TD
     A[SessionStart] --> B[Repository Discovery]
-    B --> C[Security Profile Load]
-    C --> D[GitHub Metadata / Rulesets Read]
+    B --> TI[Trusted Expected Repository と比較]
+    TI --> C[Repository Security Profile Load]
+    C --> M[Trusted Minimum Posture Mode を適用]
+    M --> D[GitHub Metadata / Effective Branch Rules Read]
     D --> E[PASS / FAIL / UNKNOWN]
-    E --> F{Policy Mode}
+    E --> F{Effective Policy Mode}
     F -->|all pass| R[READY]
     F -->|restricted + issue| X[RESTRICTED]
     F -->|strict + issue| B2[BLOCKED]
     F -->|warn + issue| W[READY with warning]
 ```
 
+## Trusted Repository Identity
+
+Repository Identity は Repository 自身ではなく Task / Orchestration State として扱います。Trusted Launcher / Orchestrator が次を設定します。
+
+```text
+AGENT_HARNESS_EXPECTED_REPOSITORY=owner/repository
+```
+
+実際の `origin` Repository はこの値と一致する必要があります。不一致は `BLOCKED`。Trusted 値が未設定の場合は Identity を `UNKNOWN` とし、Default Minimum Mode では `RESTRICTED` のまま Remote Publish を禁止します。
+
+Repository-local `.agent-harness/security.json` に `expected_repository` を追加 Consistency Check として記述できますが、Trusted Launcher Identity の代替・上書きには使いません。両者が矛盾する場合は `BLOCKED` とします。
+
+## Minimum Posture Authority
+
+Repository-local Config だけで unattended execution を弱められないようにします。Trusted Launcher が次を所有します。
+
+```text
+AGENT_HARNESS_MINIMUM_POSTURE_MODE=restricted
+```
+
+未設定時の Default は `restricted`。Effective Mode は Repository-local Mode と Trusted Minimum のうち、より厳しい方です。そのため Repository-local の `mode: warn` だけでは Default Autonomous Posture を弱められません。Interactive 用に弱めたい場合のみ Trusted Launcher が明示的に Minimum を `warn` へ変更します。
+
 ## 設定がない場合
 
-`.agent-harness/security.json` が存在しないことは parser failure とは扱いません。Built-in `restricted` default を使用します。この状態では read-only discovery、local edit、test、local commit を継続できますが、必要な GitHub control を確認できるまで remote SCM mutation は許可しません。
+`.agent-harness/security.json` が存在しないことは Parser Failure とは扱いません。Built-in `restricted` Default を使用します。この状態では Read-only Discovery、Local Edit、Test、Local Commit を継続できますが、Trusted Identity と必要な GitHub Control を確認できるまで Remote SCM Mutation は許可しません。
 
-明示的な設定ファイルが invalid な場合は別です。Control-plane failure とみなし `BLOCKED` にします。
+明示的な設定ファイルが Invalid な場合は Control-plane Failure とみなし `BLOCKED` にします。
 
 ## External State が確認できない場合
 
-`UNKNOWN` は `FAIL` と区別します。GitHub API permission 不足、Ruleset API が plan / integration 上参照不可、一時的な metadata failure 等が該当します。
+`UNKNOWN` は `FAIL` と区別します。Trusted Task Identity 未設定、GitHub API Permission 不足、Effective Rule API が参照不可、一時的な Metadata Failure 等が該当します。
 
-Mode semantics:
+Effective Mode semantics:
 
-- `strict`: required check の `FAIL` または `UNKNOWN` が1つでもあれば `BLOCKED`
-- `restricted`: required check の `FAIL` または `UNKNOWN` があれば `RESTRICTED`
-- `warn`: warning を session context に注入するが `READY` を維持
+- `strict`: Required Check の `FAIL` または `UNKNOWN` が1つでもあれば `BLOCKED`
+- `restricted`: Required Check の `FAIL` または `UNKNOWN` があれば `RESTRICTED`
+- `warn`: Warning を Session Context に注入するが `READY` を維持
+
+ただし Trusted Repository 不一致、Trusted Identity と Repository-local Identity の Conflict は Mode に関係なく常に `BLOCKED` です。
 
 ## Enforcement
 
-`SessionStart` は fail-fast / context injection の仕組みであり、最終 Security Boundary ではありません。`PreToolUse` でも cached posture を参照します。
+`SessionStart` は Fail-fast / Context Injection の仕組みであり、最終 Security Boundary ではありません。`PreToolUse` でも Cached Posture を参照します。
 
-- `BLOCKED`: mutation を deny
-- `RESTRICTED`: `git push`、`gh pr create` 等の remote SCM mutation を deny。local development は継続可
-- `READY`: 通常の central policy に従う
+- `BLOCKED`: Mutation を deny
+- `RESTRICTED`: Canonical `git push`、`gh pr create` 等の Remote SCM Mutation を deny。Local Development は継続可
+- `READY`: 通常の Central Policy と SCM Semantic Validation に従う
 
-Posture cache には TTL を持たせ、trust-boundary crossing operation の前に stale なら再検証します。
+Posture Cache には TTL を持たせ、Trust-boundary Crossing Operation の前に stale なら再検証します。また Active Repository Root と Cached Root が異なる場合も再検証します。
 
 ## 責務分離
 
-Checker の責務は configuration drift の検出です。GitHub enforcement の代替ではありません。Rulesets / Branch Protection を authoritative enforcement、IAM を credential compromise containment、Sandbox を local capability boundary、Hooks を semantic operation policy とします。
+Checker の責務は Repository / Control Configuration Drift の検出です。Trusted Launch State が Task Identity を確立し、Rulesets / Branch Protection を Authoritative Server-side Enforcement、IAM を Credential Compromise Containment、Sandbox を Local Capability Boundary、Hooks を Semantic Operation Policy とします。
 
 ## 再評価条件
 
-Vendor の SessionStart control semantics が強化された場合、GitHub protection metadata がより一貫して read 可能になった場合、または organization-level policy service が authoritative posture を供給できるようになった場合に再評価します。
+Vendor の SessionStart Control Semantics が強化された場合、GitHub Protection Metadata がより一貫して Read 可能になった場合、または Organization-level Policy / Task Service が Authoritative Posture を供給できるようになった場合に再評価します。
