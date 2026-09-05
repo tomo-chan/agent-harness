@@ -1,4 +1,4 @@
-# DL-011 — Sandbox-first credential isolation
+# DL-011 — Sandbox-first credential exposure reduction
 
 - Date: 2026-09-05
 - Status: Accepted; Revisit on vendor change
@@ -6,69 +6,55 @@
 
 ## Decision
 
-Credential confidentiality is enforced **sandbox-first**. The agent should be able to perform approved GitHub operations while never receiving reusable GitHub credentials as ordinary readable data.
+Use the vendor sandbox and local policy to **reduce credential exposure**, but do not make credential confidentiality the single security invariant on which repository safety depends.
 
-The preferred order is:
-
-1. use the vendor sandbox's native credential-masking/mediation capability when it can keep the real credential out of the agent process;
-2. otherwise keep credentials outside the agent container/process namespace and delegate only semantic remote SCM operations to a narrow SCM broker;
-3. never rely on prompt instructions or hook deny rules as the credential confidentiality boundary.
+The default architecture remains one Pod / one agent container. Do not introduce an SCM broker, sidecar, or extra Pod merely to hide GitHub credentials unless a concrete threat model requires it.
 
 ```mermaid
 flowchart LR
-    A[Agent] --> S[Vendor Sandbox]
-    S -->|local git| W[Worktree]
-    S -->|credential mediated request| M{Native masking available?}
-    M -->|yes| P[Sandbox credential proxy]
-    M -->|no| B[SCM Broker fallback]
-    P --> GH[GitHub]
-    B --> GH
-    C[Real credential] --> P
-    C2[Real credential] --> B
-    A -. cannot read .-> C
-    A -. cannot read .-> C2
+    A[Agent] --> H[Hooks / Policy]
+    H --> S[Vendor Sandbox]
+    S --> G[git / gh]
+    G --> GH[GitHub]
+    C[Short-lived SCM credential] --> G
+    GH --> I[GitHub App / IAM scope]
+    GH --> R[Rulesets / branch protection]
+    X[Credential compromise] -. contained by .-> I
+    X -. contained by .-> R
 ```
+
+## Responsibility split
+
+- **Sandbox**: reduce filesystem, process, and network access; hide known credential files where the vendor supports it; prevent broad host access.
+- **Hooks / policy**: deny semantic credential-extraction operations such as `gh auth token`, protect control-plane files, and classify risky SCM actions.
+- **Credential management**: prefer short-lived, repository-scoped credentials with the minimum permissions required.
+- **GitHub App / IAM**: contain blast radius if a credential is compromised.
+- **GitHub rulesets / branch protection**: remain the authoritative server-side enforcement for protected branches, force pushes, required PRs, and required checks.
+
+## Security invariant
+
+> Credential compromise is a possible failure mode; compromise must not imply unrestricted repository or organization authority.
+
+This deliberately avoids the stronger but brittle claim that the agent can never observe a credential. Native masking remains valuable defense in depth where available, but the system must remain safe enough when that control fails.
 
 ## Current vendor mapping
 
 ### Claude Code
 
-Use native sandbox credential masking. `GH_TOKEN` / `GITHUB_TOKEN`, or the token field inside `~/.config/gh/hosts.yml`, is replaced with a sentinel inside sandboxed commands. The sandbox proxy injects the real credential only for explicitly allowed GitHub hosts. Repository-local settings enable strict sandboxing, while masking configuration is supplied as trusted user/managed settings because Claude Code intentionally ignores credential `mask` configuration from repository-local settings.
-
-Reference: `reference/claude/managed-settings.example.json`.
+Enable the native sandbox and deny reads of common credential locations. If managed settings support credential masking in the deployment, use it as additional hardening. Do not rely on masking as the final SCM authority boundary.
 
 ### Codex
 
-Current Codex sandbox provides OS-level workspace and network isolation but does not expose an equivalent credential-masking mechanism. Therefore the agent container receives no GitHub token or credential files. Spawned-command network remains disabled and GitHub remote operations are delegated over the harness SCM socket to the broker sidecar.
-
-Reference: `reference/codex/config.example.toml`, `reference/shims/`, and `reference/scm_broker/`.
+Use its sandbox and project/managed controls to bound filesystem and network access. Do not add a broker solely because Codex lacks Claude-style credential masking. Use least-privilege short-lived GitHub credentials and server-side protections instead.
 
 ### Devin CLI
 
-Devin sandbox can hide paths covered by `Read(...)` deny rules for the entire session, so GitHub credential files are denied. Because hiding the files also prevents native `gh` from consuming them and Devin does not currently provide Claude-style masking/injection, remote GitHub operations use the same broker fallback. Sandbox startup remains fail-closed.
+Use its sandbox and permissions to hide known credential files where practical. Keep native `git` / `gh` usage simple; rely on SCM/IAM scope and GitHub-side protections for compromise containment.
 
-## Broker constraints
+## Rejected default
 
-The SCM broker is deliberately not a generic shell or GitHub API proxy. It exposes a small semantic allowlist:
+A broker/sidecar design was considered and implemented experimentally, then removed. It introduced extra processes, sockets, shims, deployment configuration, and privileged components whose own failure modes increased system complexity. It remains an optional future pattern only for deployments with a demonstrated need for stronger credential isolation.
 
-- Git remote: `push`, `fetch`, `pull`, `clone`;
-- GitHub CLI: `pr create`, `pr view`, `pr status`, `pr checks`.
+## Revisit triggers
 
-It rejects generic `gh api`, `gh auth`, Git credential operations, arbitrary commands, and workspace escapes. It owns the canonical repository identity and substitutes its own GitHub remote URL rather than trusting `.git/config`.
-
-## Security invariant
-
-> The agent may possess GitHub capability, but must not possess reusable GitHub credentials.
-
-A deployment is non-compliant if the agent can obtain a real token through its filesystem, environment, process inspection, credential helper invocation, CLI auth commands, or broker response.
-
-## Upgrade path / revisit triggers
-
-Re-evaluate this decision when:
-
-- Codex adds native credential masking/injection comparable to Claude Code;
-- Devin CLI adds native credential masking/injection while preserving sandbox guarantees;
-- Claude Code changes masking scope, platform behavior, or trusted settings requirements;
-- a vendor provides a first-class SCM capability that performs authenticated Git/GitHub operations without exposing credentials to the agent process.
-
-When a native mechanism becomes sufficiently strong, remove the broker for that vendor rather than retaining unnecessary privileged infrastructure.
+Re-evaluate when a vendor adds materially stronger native credential mediation, when the SCM credential model changes, or when a deployment threat model requires stronger process separation than the one-container baseline can provide.
