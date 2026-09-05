@@ -6,6 +6,20 @@ Vendor-neutral reference architecture and implementation for secure autonomous s
 
 The core premise is that an LLM is not a security boundary. Autonomous execution must be constrained by independent lifecycle policy, repository posture checks, OS sandboxing, workload isolation, external IAM/SCM authority, server-side repository rules, and machine-verifiable completion gates.
 
+## Two architectural layers
+
+This repository now distinguishes the reusable **Harness Layer** from the **Application Layer** built on top of it.
+
+```mermaid
+flowchart TB
+    APP[Application Layer<br/>principles / architecture contract / deterministic gates] --> H[Harness Layer<br/>hooks / posture / sandbox / IAM / SCM / completion]
+    H --> EXT[GitHub / Cloud / External Systems]
+```
+
+The Harness Layer constrains execution and authority. The Application Layer defines product/application-specific invariants and turns machine-verifiable ones into required deterministic gates. Human or LLM architecture review may discover missing invariants and propose policy changes, but it is not the authoritative pass/fail mechanism.
+
+See [Application Architecture](docs/07-application-architecture.md) and [Application Design Principles](docs/08-application-design-principles.md).
+
 ## Architecture
 
 ```mermaid
@@ -64,6 +78,16 @@ git push --set-upstream origin HEAD
 
 A semantic validator then confirms `READY` posture, the checked repository, current non-default branch, `origin`, and the expected upstream. Arbitrary remotes, destination refspecs, tags, delete/force forms and configuration overrides are outside the autonomous allowlist. `gh pr create` may not override repository, head branch or base branch. Compound shell syntax such as `&&`, pipes, redirection, newlines and command substitution is also outside the autonomous allowlist.
 
+## Deterministic application architecture gate
+
+Applications declare machine-verifiable invariants in `.agent-harness/application-architecture.json`. The reference gate runs with:
+
+```bash
+python reference/application_gate/gate.py
+```
+
+The contract is versioned, failures are fail-closed, and waivers are explicit, owned, reasoned, and expiring. The authoritative instance is intended to run as required CI rather than relying on an agent review.
+
 ## Standard autonomous flow
 
 ```mermaid
@@ -76,13 +100,14 @@ flowchart LR
     B --> P[Plan]
     P --> E[Edit]
     E --> Q[Test / lint / type-check]
-    Q --> G[Policy / completion gate]
+    Q --> AG[Application architecture gate]
+    AG --> G[Policy / completion gate]
     G --> C[Commit]
     C --> U{Posture READY?}
     U -->|yes| PU[Canonical push]
     U -->|no| RS[Remain local / request remediation]
     PU --> PR[Create PR without repo/head/base override]
-    PR --> CI[CI / review]
+    PR --> CI[Required CI gates / review]
     CI --> M[Protected server-side merge]
 ```
 
@@ -94,16 +119,14 @@ flowchart LR
 - [Adoption Guide](docs/04-adoption-guide.md) ([日本語](docs/ja/04-adoption-guide.md))
 - [Product Mapping](docs/05-product-mapping.md) ([日本語](docs/ja/05-product-mapping.md))
 - [Vendor Harnesses](docs/06-vendor-harnesses.md) ([日本語](docs/ja/06-vendor-harnesses.md))
+- [Application Architecture](docs/07-application-architecture.md) ([日本語](docs/ja/07-application-architecture.md))
+- [Application Design Principles](docs/08-application-design-principles.md) ([日本語](docs/ja/08-application-design-principles.md))
 - [Implementation Decision Log](docs/decision-log.md) ([日本語](docs/ja/decision-log.md))
-- [DL-011: Sandbox-first credential exposure reduction](docs/decisions/DL-011-sandbox-first-credential-isolation.md)
-- [DL-012: SessionStart repository posture](docs/decisions/DL-012-sessionstart-repository-posture.md)
-- [DL-013: Canonical SCM publication](docs/decisions/DL-013-canonical-scm-publication.md)
+- [DL-014: Deterministic application architecture contracts](docs/decisions/DL-014-application-architecture-contracts.md)
+- [`reference/application_gate/`](reference/application_gate/) — deterministic application architecture gate
+- [`.agent-harness/application-architecture.json`](.agent-harness/application-architecture.json) — application architecture contract
 - [`reference/harness/`](reference/harness/) — vendor adapters and semantic publication validation
 - [`reference/posture/`](reference/posture/) — repository posture checker and cache
-- [`policy.example.json`](reference/policies/policy.example.json) — semantic policy
-- [`repository-security.example.json`](reference/policies/repository-security.example.json) — repository posture profile
-- [`preflight.py`](reference/launcher/preflight.py) — optional launcher/CI preflight
-- [`agent-pod.yaml`](reference/kubernetes/agent-pod.yaml) — single-container hardened Pod baseline
 
 ## Credential responsibility split
 
@@ -111,4 +134,4 @@ The baseline intentionally does not add an SCM broker or sidecar merely to hide 
 
 ## Guiding rule
 
-> Make safe actions easy and autonomous; detect unsafe environments early; make critical authority boundaries independent of the model and its credentials.
+> Make safe actions easy and autonomous; detect unsafe environments early; turn important application principles into deterministic gates; keep critical authority boundaries independent of model judgment.
