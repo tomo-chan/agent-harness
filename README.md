@@ -2,24 +2,27 @@
 
 # Agent Harness
 
-Vendor-neutral reference architecture and implementation for secure, autonomous software-engineering agents.
+Vendor-neutral reference architecture and implementation for secure autonomous software-engineering agents.
 
-This repository turns the operational lessons from Claude Code, OpenAI Codex, and Devin CLI into a reusable agent harness. The core premise is that an LLM is not a security boundary: autonomous execution must be constrained by independent policy, OS isolation, workload isolation, external authorization, and machine-verifiable completion gates.
+The core premise is that an LLM is not a security boundary. Autonomous execution must be constrained by independent lifecycle policy, repository posture checks, OS sandboxing, workload isolation, external IAM/SCM authority, server-side repository rules, and machine-verifiable completion gates.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
     A[Instructions / AGENTS.md / Skills] --> B[Agent Runtime]
-    B -->|lifecycle hooks| C[Policy Engine]
+    B --> SS[SessionStart posture check]
+    SS --> C[Policy Engine]
+    B -->|PreToolUse| C
     C -->|allow| D[Permissions / Rules]
     C -->|ask| E[Approval Gateway]
-    C -->|deny| X[Stop]
+    C -->|deny| X[Deny / restrict]
     E --> D
     D --> F[OS Sandbox]
-    F --> G[Container / Pod]
-    G --> H[IAM / SCM / Cloud Policy]
-    H --> I[External Systems]
+    F --> G[Single agent container / Pod]
+    G --> H[IAM / SCM credential scope]
+    H --> I[GitHub / Cloud]
+    I --> R[Rulesets / server-side policy]
 ```
 
 The layers have deliberately different responsibilities:
@@ -27,61 +30,70 @@ The layers have deliberately different responsibilities:
 | Layer | Responsibility |
 |---|---|
 | Instructions / Skills | Desired behavior, workflow and architecture guidance |
+| SessionStart posture check | Detect repository/security configuration drift before work begins |
 | Hooks / Policy Engine | Semantic and lifecycle policy |
 | Permissions / Rules | Static command, tool and path classification |
-| Sandbox | Filesystem and network capability boundary |
-| Container / Pod | Process, host and resource isolation |
-| IAM / SCM policy | External authority and blast-radius containment |
+| Sandbox | Reduce filesystem/process/network capability and credential exposure |
+| Container / Pod | Host and resource isolation; default baseline is one Pod / one container |
+| IAM / SCM policy | Contain credential compromise with least privilege and short-lived scope |
+| GitHub rulesets | Authoritative branch/PR/CI enforcement |
 | Completion Gate | Machine-verifiable definition of done |
 | Telemetry | Audit, incident analysis and policy tuning |
+
+## Repository posture states
+
+At `SessionStart`, the harness checks repository identity and GitHub-side controls such as required PRs, force-push prevention, and required status checks. Each check is `pass`, `fail`, or `unknown`; the session becomes:
+
+- `READY` — normal policy applies;
+- `RESTRICTED` — local development is allowed, but remote SCM mutation is denied;
+- `BLOCKED` — mutating actions are denied.
+
+If `.agent-harness/security.json` is missing, built-in `restricted` defaults are used. Invalid explicit configuration is `BLOCKED`. Stale posture is rechecked before remote trust-boundary operations such as `git push` or `gh pr create`.
 
 ## Standard autonomous flow
 
 ```mermaid
 flowchart LR
-    T[Task] --> I[Inspect repository<br/>read-only]
+    T[Task] --> S[SessionStart posture check]
+    S --> I[Inspect repository read-only]
     I --> W{Mutation required?}
-    W -->|yes| B[Create feature<br/>worktree / branch]
+    W -->|yes| B[Create feature worktree / branch]
     W -->|no| V[Verify result]
     B --> P[Plan]
     P --> E[Edit]
     E --> Q[Test / lint / type-check]
     Q --> G[Policy / completion gate]
     G --> C[Commit]
-    C --> U[Push feature branch]
-    U --> R[Create PR]
-    R --> CI[CI / review]
+    C --> U{Posture READY?}
+    U -->|yes| PU[Push feature branch]
+    U -->|no| RS[Remain local / request remediation]
+    PU --> PR[Create PR]
+    PR --> CI[CI / review]
     CI --> M[Protected server-side merge]
-    V --> M
 ```
-
-The agent should normally be able to perform routine work without human interaction. Human approval is reserved for operations whose risk cannot be bounded safely by static policy or sandboxing.
 
 ## Repository layout
 
-- [Architecture](docs/01-architecture.md) ([日本語](docs/ja/01-architecture.md)) — logical and deployment architecture
-- [Design Principles](docs/02-design-principles.md) ([日本語](docs/ja/02-design-principles.md)) — design principles and responsibility boundaries
-- [Security Model](docs/03-security-model.md) ([日本語](docs/ja/03-security-model.md)) — threat model and defense-in-depth controls
-- [Adoption Guide](docs/04-adoption-guide.md) ([日本語](docs/ja/04-adoption-guide.md)) — staged adoption guide
-- [Product Mapping](docs/05-product-mapping.md) ([日本語](docs/ja/05-product-mapping.md)) — Claude Code / Codex / Devin CLI mapping
-- [Vendor Harnesses](docs/06-vendor-harnesses.md) ([日本語](docs/ja/06-vendor-harnesses.md)) — runnable Claude Code / Codex / Devin CLI adapters and configuration
-- [Implementation Decision Log](docs/decision-log.md) ([日本語](docs/ja/decision-log.md)) — architectural choices, vendor limitations, upgrade/revisit triggers
-- [DL-011: Sandbox-first credential isolation](docs/decisions/DL-011-sandbox-first-credential-isolation.md) ([日本語](docs/ja/decisions/DL-011-sandbox-first-credential-isolation.md)) — allow GitHub capability without exposing reusable credentials
-- [`AGENTS.md`](AGENTS.md) — development instructions for coding agents
-- [`policy_engine.py`](reference/hooks/policy_engine.py) — vendor-neutral policy engine
+- [Architecture](docs/01-architecture.md) ([日本語](docs/ja/01-architecture.md))
+- [Design Principles](docs/02-design-principles.md) ([日本語](docs/ja/02-design-principles.md))
+- [Security Model](docs/03-security-model.md) ([日本語](docs/ja/03-security-model.md))
+- [Adoption Guide](docs/04-adoption-guide.md) ([日本語](docs/ja/04-adoption-guide.md))
+- [Product Mapping](docs/05-product-mapping.md) ([日本語](docs/ja/05-product-mapping.md))
+- [Vendor Harnesses](docs/06-vendor-harnesses.md) ([日本語](docs/ja/06-vendor-harnesses.md))
+- [Implementation Decision Log](docs/decision-log.md) ([日本語](docs/ja/decision-log.md))
+- [DL-011: Sandbox-first credential exposure reduction](docs/decisions/DL-011-sandbox-first-credential-isolation.md)
+- [DL-012: SessionStart repository posture](docs/decisions/DL-012-sessionstart-repository-posture.md)
 - [`reference/harness/`](reference/harness/) — vendor adapters
-- [`reference/scm_broker/`](reference/scm_broker/) — broker fallback for vendors without native credential masking
-- [`reference/shims/`](reference/shims/) — agent-facing `git` / `gh` shims for brokered remote operations
-- [`policy.example.json`](reference/policies/policy.example.json) — example policy
-- [`completion_gate.sh`](reference/scripts/completion_gate.sh) — deterministic completion check
-- [`agent-pod.yaml`](reference/kubernetes/agent-pod.yaml) — hardened Pod example
-- [`agent-with-scm-broker.yaml`](reference/kubernetes/agent-with-scm-broker.yaml) — sandbox-first credential isolation deployment example
-- [`network-policy.yaml`](reference/kubernetes/network-policy.yaml) — default-deny network example
+- [`reference/posture/`](reference/posture/) — repository posture checker and cache
+- [`policy.example.json`](reference/policies/policy.example.json) — semantic policy
+- [`repository-security.example.json`](reference/policies/repository-security.example.json) — repository posture profile
+- [`preflight.py`](reference/launcher/preflight.py) — optional launcher/CI preflight
+- [`agent-pod.yaml`](reference/kubernetes/agent-pod.yaml) — single-container hardened Pod baseline
 
-## Non-goals
+## Credential responsibility split
 
-This project does not attempt to make prompts, [AGENTS.md](AGENTS.md), CLAUDE.md, Skills, or model reasoning into a security mechanism. Those are useful behavioral controls but are not trusted enforcement boundaries.
+The baseline intentionally does not add an SCM broker or sidecar merely to hide credentials. Sandbox and local policy reduce exposure; short-lived repository-scoped credentials and least-privilege GitHub App/IAM permissions contain compromise; GitHub rulesets preserve protected-branch invariants even if a credential is exposed.
 
 ## Guiding rule
 
-> Make safe actions easy and autonomous; make dangerous actions technically impossible or explicitly approved.
+> Make safe actions easy and autonomous; detect unsafe environments early; make critical authority boundaries independent of the model and its credentials.
