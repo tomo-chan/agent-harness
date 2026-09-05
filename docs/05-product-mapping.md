@@ -1,6 +1,8 @@
+[← Adoption Guide](04-adoption-guide.md) | [日本語](ja/05-product-mapping.md) | [README →](../README.md)
+
 # Product Mapping
 
-This project uses a vendor-neutral model. Product features should be mapped into the common layers rather than copied directly into architecture.
+This project uses a vendor-neutral model. Product features should be mapped into the common layers rather than copied directly into architecture. See the [Reference Architecture](01-architecture.md) and [Design Principles](02-design-principles.md) for the common model.
 
 | Concern | Claude Code | OpenAI Codex | Devin CLI |
 |---|---|---|---|
@@ -19,13 +21,19 @@ This project uses a vendor-neutral model. Product features should be mapped into
 
 ## Claude Code
 
+Official documentation: [Claude Code Hooks](https://code.claude.com/docs/en/hooks) and [Sandboxing](https://code.claude.com/docs/en/sandboxing).
+
 Claude Code has a broad lifecycle-hook surface and is well suited to rich semantic orchestration. A critical design point is that hook commands themselves must not be assumed to inherit the same sandbox boundary as ordinary agent shell commands. Keep hook code trusted, small and defensive.
 
 ## Codex
 
+Official documentation: [OpenAI Codex documentation](https://developers.openai.com/codex/) and the [Codex open-source repository](https://github.com/openai/codex).
+
 Codex provides a strong platform-oriented decomposition around sandboxing, approval policy, Rules, managed configuration and telemetry. Its App Server architecture is useful when building an external harness because tool approvals can be surfaced as structured control-plane events. Hook failures must still be evaluated according to the current version's failure semantics; hard invariants belong in independent boundaries.
 
 ## Devin CLI
+
+Official documentation: [Devin CLI Hooks](https://docs.devin.ai/cli/extensibility/hooks/overview) and [Permissions](https://docs.devin.ai/cli/reference/permissions).
 
 Devin CLI tightly connects Permissions with sandbox scope and provides an explicit autonomous sandbox mode. Its fail-closed sandbox startup behavior is attractive for unattended workloads. Direct edit/write tool behavior and network-filter maturity must be accounted for in the surrounding architecture. Local-to-cloud handoff should be treated as a separate trust-domain transition.
 
@@ -43,4 +51,10 @@ Vendor event
    -> Vendor response
 ```
 
+The reference implementation is [`policy_engine.py`](../reference/hooks/policy_engine.py) with a minimal [`pre_tool_use_adapter.py`](../reference/hooks/pre_tool_use_adapter.py).
+
 Do not attempt to normalize every vendor feature. Normalize the security and orchestration semantics that the organization owns; retain product-specific capabilities behind adapters when they provide value.
+
+---
+
+[← Adoption Guide](04-adoption-guide.md) | [日本語](ja/05-product-mapping.md) | [README →](../README.md)
