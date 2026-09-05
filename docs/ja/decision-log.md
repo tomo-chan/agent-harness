@@ -77,10 +77,22 @@ Harness の設計・実装に影響する判断を記録します。詳細レコ
 
 - Status: Accepted / Vendor Update 時に再評価
 - 判断: SessionStart で Posture を検証して `READY` / `RESTRICTED` / `BLOCKED` を cache し、Remote SCM Mutation 前に stale なら再検証する。
+- Trusted Identity: `AGENT_HARNESS_EXPECTED_REPOSITORY` は Trusted Launcher が設定する。未設定は `UNKNOWN`、不一致は `BLOCKED`。
+- Minimum Posture: Repository-local `mode` は `AGENT_HARNESS_MINIMUM_POSTURE_MODE` を弱められない。Default minimum は `restricted`。
 - Missing Config: built-in `restricted` default。
 - Invalid Explicit Config: `BLOCKED`。
-- External State Unknown: `UNKNOWN` を保持し、Mode により block / restrict / warn を決定する。
+- External State Unknown: `UNKNOWN` を保持し、Effective Mode により block / restrict / warn を決定する。
 - Enforcement: SessionStart は検出 / fail-fast、PreToolUse は実行制御、GitHub Ruleset / IAM は authoritative enforcement。
+
+## DL-013 — Canonical SCM Publication Command
+
+詳細: [DL-013](decisions/DL-013-canonical-scm-publication.md)
+
+- Status: Accepted / Vendor Update 時に再評価
+- 判断: Autonomous Git Publish は `git push` と `git push --set-upstream origin HEAD` の2形式だけを許可し、その後に Repository / Branch / Upstream を Semantic Validation する。
+- Compound Shell: 先頭が read-only command でも `&&` / Pipe / Redirection 等を含む Command は Autonomous Allowlist 外。
+- PR Creation: `gh pr create` で Repository / Head / Base の override を禁止する。
+- 理由: Arbitrary Shell / Refspec を安全に解釈する複雑さを持ち込まず、必要な Publish Path だけを狭く定義する。
 
 ## Maintenance Rule
 
