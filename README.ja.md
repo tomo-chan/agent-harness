@@ -72,22 +72,22 @@ Task
 
 ## リポジトリ構成
 
-- `docs/01-architecture.md` — 英語版アーキテクチャ
-- `docs/02-design-principles.md` — 英語版設計原則
-- `docs/03-security-model.md` — 英語版セキュリティモデル
-- `docs/04-adoption-guide.md` — 英語版導入ガイド
-- `docs/05-product-mapping.md` — 英語版製品マッピング
-- `docs/ja/` — 上記ドキュメントの日本語版
-- `reference/hooks/policy_engine.py` — ベンダー非依存 Policy Engine
-- `reference/hooks/pre_tool_use_adapter.py` — Hook Adapter 例
-- `reference/policies/policy.example.json` — ポリシー例
-- `reference/scripts/completion_gate.sh` — 完了条件検証
-- `reference/kubernetes/agent-pod.yaml` — Hardening 済み Pod 例
-- `reference/kubernetes/network-policy.yaml` — default-deny NetworkPolicy 例
+- [アーキテクチャ](docs/ja/01-architecture.md) ([English](docs/01-architecture.md))
+- [設計原則](docs/ja/02-design-principles.md) ([English](docs/02-design-principles.md))
+- [セキュリティモデル](docs/ja/03-security-model.md) ([English](docs/03-security-model.md))
+- [導入ガイド](docs/ja/04-adoption-guide.md) ([English](docs/04-adoption-guide.md))
+- [製品マッピング](docs/ja/05-product-mapping.md) ([English](docs/05-product-mapping.md))
+- [`AGENTS.md`](AGENTS.md) — Coding Agent 向け開発指示
+- [`policy_engine.py`](reference/hooks/policy_engine.py) — ベンダー非依存 Policy Engine
+- [`pre_tool_use_adapter.py`](reference/hooks/pre_tool_use_adapter.py) — Hook Adapter 例
+- [`policy.example.json`](reference/policies/policy.example.json) — ポリシー例
+- [`completion_gate.sh`](reference/scripts/completion_gate.sh) — 完了条件検証
+- [`agent-pod.yaml`](reference/kubernetes/agent-pod.yaml) — Hardening 済み Pod 例
+- [`network-policy.yaml`](reference/kubernetes/network-policy.yaml) — default-deny NetworkPolicy 例
 
 ## 非目標
 
-このプロジェクトは、Prompt、AGENTS.md、CLAUDE.md、Skills、モデルの推論そのものをセキュリティ機構にすることを目的としていません。これらは有効な行動制御ですが、秘密情報、production 環境、protected branch を守るための最終的な強制境界ではありません。
+このプロジェクトは、Prompt、[AGENTS.md](AGENTS.md)、CLAUDE.md、Skills、モデルの推論そのものをセキュリティ機構にすることを目的としていません。これらは有効な行動制御ですが、秘密情報、production 環境、protected branch を守るための最終的な強制境界ではありません。
 
 ## 基本原則
 
