@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: agent-worker
+  labels:
+    app: agent-worker
+spec:
+  automountServiceAccountToken: false
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: agent
+      image: example.invalid/agent-harness:latest
+      workingDir: /workspace
+      command: ["sleep", "infinity"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        privileged: false
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "1Gi"
+        limits:
+          cpu: "4"
+          memory: "8Gi"
+      volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        - name: tmp
+          mountPath: /tmp
+  volumes:
+    - name: workspace
+      emptyDir: {}
+    - name: tmp
+      emptyDir: {}
+
+# Production notes:
+# - replace the placeholder image and pin it by digest;
+# - use workload identity only when cloud access is required;
+# - do not mount Docker/container-runtime sockets or hostPath volumes;
+# - prefer a dedicated ServiceAccount with minimum RBAC/IAM;
+# - add an external credential broker for short-lived SCM credentials.
