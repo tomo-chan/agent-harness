@@ -24,6 +24,7 @@ DEFAULT_POLICY: dict[str, Any] = {
         "required_status_checks": True,
     },
 }
+MODE_RANK = {"warn": 0, "restricted": 1, "strict": 2}
 
 
 @dataclass(frozen=True)
@@ -42,7 +43,7 @@ class RepositorySecurityPolicy:
     @classmethod
     def from_mapping(cls, value: dict[str, Any]) -> "RepositorySecurityPolicy":
         mode = str(value.get("mode", "restricted"))
-        if mode not in {"strict", "restricted", "warn"}:
+        if mode not in MODE_RANK:
             raise ValueError("mode must be strict, restricted, or warn")
         ttl = int(value.get("ttl_seconds", 300))
         if ttl < 0:
@@ -149,6 +150,14 @@ def parse_github_repository(remote: str) -> str | None:
     return "/".join(parts[:2]) if len(parts) >= 2 else None
 
 
+def _effective_mode(repository_mode: str) -> tuple[str, str]:
+    minimum = os.environ.get("AGENT_HARNESS_MINIMUM_POSTURE_MODE", "restricted")
+    if minimum not in MODE_RANK:
+        raise ValueError("AGENT_HARNESS_MINIMUM_POSTURE_MODE must be strict, restricted, or warn")
+    effective = repository_mode if MODE_RANK[repository_mode] >= MODE_RANK[minimum] else minimum
+    return effective, minimum
+
+
 def _state_for(mode: str, checks: dict[str, Check]) -> str:
     problem = any(check.status in {"fail", "unknown"} for check in checks.values())
     if not problem:
@@ -183,6 +192,7 @@ def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> P
     root = _repo_root(cwd, runner)
     try:
         policy, source = RepositorySecurityPolicy.load(root)
+        effective_mode, minimum_mode = _effective_mode(policy.mode)
     except Exception as exc:
         return PostureReport(
             state="BLOCKED", repository=None, repo_root=str(root), default_branch=None,
@@ -201,9 +211,27 @@ def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> P
         else:
             checks["github_remote"] = Check("fail", f"origin is not a github.com repository: {remote}")
 
+    trusted_expected = os.environ.get("AGENT_HARNESS_EXPECTED_REPOSITORY")
+    if trusted_expected:
+        status = "pass" if repository == trusted_expected else "fail"
+        checks["trusted_repository_identity"] = Check(
+            status, f"expected {trusted_expected}; found {repository}"
+        )
+    else:
+        checks["trusted_repository_identity"] = Check(
+            "unknown", "trusted launcher did not provide AGENT_HARNESS_EXPECTED_REPOSITORY"
+        )
+
     if policy.expected_repository:
         status = "pass" if repository == policy.expected_repository else "fail"
-        checks["repository_identity"] = Check(status, f"expected {policy.expected_repository}; found {repository}")
+        checks["repository_declared_identity"] = Check(
+            status, f"repository policy expected {policy.expected_repository}; found {repository}"
+        )
+        if trusted_expected and policy.expected_repository != trusted_expected:
+            checks["repository_policy_conflict"] = Check(
+                "fail",
+                f"repository policy expects {policy.expected_repository} but trusted launcher expects {trusted_expected}",
+            )
 
     default_branch: str | None = None
     metadata_error: str | None = None
@@ -240,12 +268,15 @@ def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> P
         else:
             checks[requirement] = Check("fail", f"no active {rule_type} rule applies to {default_branch}")
 
-    state = _state_for(policy.mode, checks)
-    if checks.get("repository_identity", Check("pass", "")).status == "fail":
-        state = "BLOCKED"
+    state = _state_for(effective_mode, checks)
+    for key in ("trusted_repository_identity", "repository_declared_identity", "repository_policy_conflict"):
+        if checks.get(key, Check("pass", "")).status == "fail":
+            state = "BLOCKED"
+
+    policy_source = f"{source}; minimum_mode={minimum_mode}"
     return PostureReport(
-        state, repository, str(root), default_branch, policy.mode, policy.ttl_seconds,
-        source, time.time(), checks,
+        state, repository, str(root), default_branch, effective_mode, policy.ttl_seconds,
+        policy_source, time.time(), checks,
     )
 
 
