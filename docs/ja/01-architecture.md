@@ -4,7 +4,7 @@
 
 ## 1. 目的
 
-自律型 Coding Agent は、Repository 調査、Worktree 作成、Code 変更、検証、Commit、Feature Branch Push、PR 作成までをできる限り人間の介入なしで実行できることを目指します。ただし自律性は無制限な Authority を意味せず、Deployment は Threat Model が許す範囲でできるだけ単純に保ちます。
+自律型 Coding Agent は、Repository 調査、Worktree 作成、Code 変更、検証、Commit、Feature Branch Publish、PR 作成までをできる限り人間の介入なしで実行できることを目指します。ただし自律性は無制限な Authority を意味せず、Deployment は Threat Model が許す範囲でできるだけ単純に保ちます。
 
 ## 2. Control Plane と Execution Plane
 
@@ -12,9 +12,11 @@
 flowchart TB
     subgraph CP[Control Plane]
         T[Task / Queue] --> O[Orchestrator]
-        O --> SS[SessionStart Posture Check]
+        O --> TI[Trusted Task Identity]
+        TI --> SS[SessionStart Posture Check]
         SS --> P[Policy Engine]
         O --> P
+        P --> SV[SCM Semantic Validator]
         P --> A[Approval Gateway]
         P --> OT[Audit / OTel]
     end
@@ -30,28 +32,42 @@ flowchart TB
     end
 
     O --> R
+    SV --> R
 ```
 
-Control Plane は「何を許可するか」、Execution Plane は「技術的に何が可能か」を制御します。Repository Posture は外部 Security Assumption が現在も成立しているかを検出します。あるレイヤーが壊れても、別レイヤーの Authority を暗黙に獲得できないようにします。
+Control Plane は「何を許可するか」、Execution Plane は「技術的に何が可能か」を制御します。Trusted Launcher / Orchestrator State が Task Identity を確立し、Repository-local Config は追加要件を定義できますが Authoritative Task Identity を再定義できません。Repository Posture は外部 Security Assumption が現在も成立しているかを検出します。
 
 ## 3. Mutation 前の Repository Posture
 
-`SessionStart` で Repository を特定し、GitHub-side Control を評価します。各 Check は `pass` / `fail` / `unknown` に正規化し、`READY` / `RESTRICTED` / `BLOCKED` を導出します。
+`SessionStart` で Repository を特定し、`AGENT_HARNESS_EXPECTED_REPOSITORY` と比較し、Trusted Minimum Posture Mode を適用して GitHub-side Control を評価します。各 Check は `pass` / `fail` / `unknown` に正規化し、`READY` / `RESTRICTED` / `BLOCKED` を導出します。
 
 ```mermaid
 stateDiagram-v2
     [*] --> CHECKING
-    CHECKING --> READY: Required Control を確認
+    CHECKING --> READY: Trusted Identity + Required Control を確認
     CHECKING --> RESTRICTED: restricted mode で未確認/未達
-    CHECKING --> BLOCKED: strict failure または invalid policy
+    CHECKING --> BLOCKED: Identity Mismatch / strict failure / invalid policy
     RESTRICTED --> READY: remediation + recheck
 ```
 
-`RESTRICTED` では Repository 調査、Source Edit、Test、Local Commit を継続できますが、`git push` や `gh pr create` などの Remote Mutation は deny します。`BLOCKED` では mutation を deny します。Posture は Session 単位で TTL 付き Cache に保存し、Active Repository が変わった場合や stale な状態で Remote Trust Boundary を越えようとした場合に再検証します。
+`RESTRICTED` では Repository 調査、Source Edit、Test、Local Commit を継続できますが、Canonical `git push` や `gh pr create` などの Remote Mutation は deny します。`BLOCKED` では Mutation を deny します。Posture は Session 単位で TTL 付き Cache に保存し、Active Repository が変わった場合や stale な状態で Remote Trust Boundary を越えようとした場合に再検証します。
 
-`.agent-harness/security.json` がない場合は built-in `restricted` default を利用し、明示的 Policy が invalid な場合は `BLOCKED` とします。
+`.agent-harness/security.json` がない場合は built-in `restricted` default、明示的 Policy が invalid な場合は `BLOCKED` とします。Repository-local `mode: warn` だけでは Trusted Minimum の Default `restricted` を弱められません。Interactive 用に弱める場合だけ Trusted Launcher が明示的に Minimum を変更します。
 
-## 4. State Machine
+## 4. Canonical SCM Publication
+
+Arbitrary Shell / Refspec を安全と推測しません。Autonomous Publication Path は次の2形式に限定します。
+
+```bash
+git push
+git push --set-upstream origin HEAD
+```
+
+Semantic Validator が `READY` Posture、Current Branch、GitHub から取得した Default Branch、`origin`、Checked Repository Identity、Upstream を確認します。Arbitrary Remote、Destination Refspec、Tag、Delete / Force、Git Config Override は Autonomous Path 外です。`gh pr create` では Repository / Head Branch / Base Branch の Override を禁止します。
+
+`&&`, `||`, `;`, Pipe, Redirection, Newline, Command Substitution 等の Compound Shell Syntax も Autonomous Allowlist 外です。Read-only Prefix の後ろに Mutation を隠せないようにし、Shell Parser の複雑さを Harness に持ち込みません。詳細は [DL-013](decisions/DL-013-canonical-scm-publication.md) を参照してください。
+
+## 5. State Machine
 
 ```mermaid
 stateDiagram-v2
@@ -78,7 +94,7 @@ stateDiagram-v2
 
 Authoritative Task State は Model Context の外に保持します。Compaction、Process Restart、Model Switch、Subagent 実行で Security / Workflow State を失わないようにします。
 
-## 5. Worktree Model
+## 6. Worktree Model
 
 Mutable Task ごとに 1 Worktree を使い、Original Checkout は Stable Control Checkout として扱います。
 
@@ -88,23 +104,23 @@ flowchart LR
     C --> T2[/worktrees/task-456/]
 ```
 
-Commit / Remote Publication 前に Active Repository / Worktree / Branch を検証します。Protected Default Branch への Direct Push は禁止します。異なる Repository へ Session が移動した場合は Posture Cache を再評価し、同一 Repository 内の Worktree 移動は継続してサポートします。
+Commit / Remote Publication 前に Active Repository / Worktree / Branch を検証します。GitHub から取得した Default Branch への Direct Push は禁止します。異なる Repository へ Session が移動した場合は Posture Cache を再評価し、同一 Repository 内の Worktree 移動は継続してサポートします。
 
-## 6. Credential / Authority Model
+## 7. Credential / Authority Model
 
 Baseline は **1 Pod / 1 Agent Container** です。具体的な Threat Model が要求しない限り、Credential を隠すだけの目的で SCM Broker、Sidecar、Command Shim を導入しません。
 
 Sandbox / Local Policy は Credential Exposure を低減しますが、Credential Compromise は起こり得る Failure Mode とします。Short-lived / Repository-scoped Credential、Least-privilege GitHub App / IAM、Server-side Repository Rule で Blast Radius を制限します。詳細は [DL-011](decisions/DL-011-sandbox-first-credential-isolation.md) を参照してください。
 
-## 7. Approval Gateway
+## 8. Approval Gateway
 
-`allow` は Bound された Routine Operation、`deny` は Invariant 違反、`ask` は External Authorization が必要な操作です。Session 全体を unrestricted mode にするより、単一 Semantic Action へ短時間・狭い Scope の承認を与えます。
+`allow` は Bound された Routine Operation、`deny` は Invariant 違反、`ask` は External Authorization が必要な操作です。Session 全体を unrestricted mode にするより、単一 Semantic Action へ短時間・狭い Scope の承認を与えます。Compound Shell や Non-canonical Remote Publication は安全と推測せず Autonomous Path から外します。
 
-## 8. Completion Pipeline
+## 9. Completion Pipeline
 
 Model が「完了した」と発言することは証拠ではありません。Deterministic Gate で Worktree / Branch、Required Test、Lint / Type Check、Commit / PR / CI 等の Task-specific Invariant を確認します。Stop Hook から利用できますが、Retry / Time / Tool / Cost Circuit Breaker は Orchestrator に持たせます。
 
-## 9. Kubernetes Deployment Baseline
+## 10. Kubernetes Deployment Baseline
 
 Threat Model が要求しない限り、最小の Secure Baseline を採用します。
 
@@ -115,6 +131,7 @@ Threat Model が要求しない限り、最小の Secure Baseline を採用し�
 - ephemeral task workspace と明示的 Resource Limit
 - Environment に応じた Network Control
 - Short-lived / Least-privilege Cloud / SCM Credential
+- Repository-local Config の外から Trusted Task Identity を供給
 - GitHub Rulesets / Branch Protection を Authoritative SCM Enforcement とする
 
 リファレンス: [`agent-pod.yaml`](../../reference/kubernetes/agent-pod.yaml) / [`network-policy.yaml`](../../reference/kubernetes/network-policy.yaml)
