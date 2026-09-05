@@ -1,6 +1,8 @@
+[← Security Model](03-security-model.md) | [日本語](ja/04-adoption-guide.md) | [Next: Product Mapping →](05-product-mapping.md)
+
 # Adoption Guide
 
-Adopt autonomy progressively. Each stage should have explicit exit criteria and observable evidence before expanding authority.
+Adopt autonomy progressively. Each stage should have explicit exit criteria and observable evidence before expanding authority. Review the [Security Model](03-security-model.md) before expanding privileges.
 
 ## Stage 0 — Observe
 
@@ -32,9 +34,11 @@ Exit criteria:
 - CI is authoritative;
 - audit events correlate task -> commit -> PR.
 
+The reference completion check is [`completion_gate.sh`](../reference/scripts/completion_gate.sh).
+
 ## Stage 3 — Unattended operation
 
-Move routine actions to allow rules. Add an external approval gateway for exceptional operations. Introduce turn/time/tool/cost budgets and failure circuit breakers.
+Move routine actions to allow rules. Add an external approval gateway for exceptional operations. Introduce turn/time/tool/cost budgets and failure circuit breakers. See [`policy.example.json`](../reference/policies/policy.example.json) for a minimal classification example.
 
 Recommended approval candidates:
 - expanding filesystem/network scope;
@@ -50,12 +54,12 @@ Only after strong isolation and IAM controls are proven should agents interact w
 ## Suggested implementation order
 
 1. Define normalized action and policy schemas.
-2. Implement central policy engine and unit tests.
-3. Add vendor hook adapter.
+2. Implement central [`policy_engine.py`](../reference/hooks/policy_engine.py) and unit tests.
+3. Add vendor hook adapters; the repository contains [`pre_tool_use_adapter.py`](../reference/hooks/pre_tool_use_adapter.py) as a minimal example.
 4. Configure static permissions/rules.
 5. Enable fail-closed OS sandbox where supported.
-6. Harden container/Pod.
-7. Add default-deny network controls and egress path.
+6. Harden container/Pod using [`agent-pod.yaml`](../reference/kubernetes/agent-pod.yaml) as a starting point.
+7. Add default-deny network controls and egress path; see [`network-policy.yaml`](../reference/kubernetes/network-policy.yaml).
 8. Replace static credentials with workload identity/short-lived tokens.
 9. Add worktree lifecycle management.
 10. Implement deterministic completion gate.
@@ -94,3 +98,7 @@ Useful metrics include:
 - tasks terminated by budget/circuit breaker.
 
 The target is not maximum autonomy. The target is the highest autonomy that remains bounded, observable and recoverable.
+
+---
+
+[← Security Model](03-security-model.md) | [日本語](ja/04-adoption-guide.md) | [Next: Product Mapping →](05-product-mapping.md)
