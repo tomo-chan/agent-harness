@@ -64,9 +64,14 @@ flowchart LR
 - [セキュリティモデル](docs/ja/03-security-model.md) ([English](docs/03-security-model.md))
 - [導入ガイド](docs/ja/04-adoption-guide.md) ([English](docs/04-adoption-guide.md))
 - [製品マッピング](docs/ja/05-product-mapping.md) ([English](docs/05-product-mapping.md))
+- [Vendor 別 Harness 実装](docs/ja/06-vendor-harnesses.md) ([English](docs/06-vendor-harnesses.md)) — Claude Code / Codex / Devin CLI 向け実行可能 Harness
+- [実装 Decision Log](docs/ja/decision-log.md) ([English](docs/decision-log.md)) — 設計判断、暫定 workaround、Upgrade / 再評価条件
 - [`AGENTS.md`](AGENTS.md) — Coding Agent 向け開発指示
+- [`.claude/settings.json`](.claude/settings.json) — Claude Code project hooks
+- [`.codex/hooks.json`](.codex/hooks.json) — Codex project hooks
+- [`.devin/hooks.v1.json`](.devin/hooks.v1.json) / [`.devin/config.json`](.devin/config.json) — Devin CLI hooks / permissions
+- [`reference/harness/`](reference/harness/) — Vendor-specific Adapter
 - [`policy_engine.py`](reference/hooks/policy_engine.py) — ベンダー非依存 Policy Engine
-- [`pre_tool_use_adapter.py`](reference/hooks/pre_tool_use_adapter.py) — Hook Adapter 例
 - [`policy.example.json`](reference/policies/policy.example.json) — ポリシー例
 - [`completion_gate.sh`](reference/scripts/completion_gate.sh) — 完了条件検証
 - [`agent-pod.yaml`](reference/kubernetes/agent-pod.yaml) — Hardening 済み Pod 例
