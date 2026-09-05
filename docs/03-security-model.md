@@ -1,3 +1,5 @@
+[← Design Principles](02-design-principles.md) | [日本語](ja/03-security-model.md) | [Next: Adoption Guide →](04-adoption-guide.md)
+
 # Security Model
 
 ## Threat model
@@ -41,7 +43,7 @@ IAM/SCM authorization       bounds external authority
 Server-side protections     protect critical resources
 ```
 
-No single layer should be expected to catch every failure mode.
+No single layer should be expected to catch every failure mode. The architecture behind these boundaries is described in [Reference Architecture](01-architecture.md).
 
 ## Trusted computing base
 
@@ -61,7 +63,7 @@ Use network controls outside the agent runtime as the hard boundary. A recommend
 Agent Pod -> NetworkPolicy -> controlled egress proxy/gateway -> allowlisted services
 ```
 
-Block cloud metadata endpoints, cluster administration endpoints and unrelated internal networks. Agent-native domain filtering can be used as defense in depth, not as the only network boundary.
+Block cloud metadata endpoints, cluster administration endpoints and unrelated internal networks. Agent-native domain filtering can be used as defense in depth, not as the only network boundary. See the reference [`network-policy.yaml`](../reference/kubernetes/network-policy.yaml).
 
 ## MCP and external tools
 
@@ -77,7 +79,7 @@ A read-only service account is preferable for production data access. Avoid expo
 
 ## Git and SCM
 
-Allow routine operations such as status, diff, log, feature-branch commit/push and PR creation. Deny or require approval for force push, protected-branch mutation, tag/release creation, workflow modification and merge depending on organizational policy.
+Allow routine operations such as status, diff, log, feature-branch commit/push and PR creation. Deny or require approval for force push, protected-branch mutation, tag/release creation, workflow modification and merge depending on organizational policy. The sample classifications are in [`policy.example.json`](../reference/policies/policy.example.json).
 
 SCM server-side rules are the final authority. An agent credential should not be able to bypass them.
 
@@ -100,3 +102,7 @@ Capture at least:
 - sandbox/network denials.
 
 Do not log raw secrets. Prefer structured events suitable for OTel or a centralized analytics store.
+
+---
+
+[← Design Principles](02-design-principles.md) | [日本語](ja/03-security-model.md) | [Next: Adoption Guide →](04-adoption-guide.md)
