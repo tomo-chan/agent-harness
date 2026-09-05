@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-worker-default-deny
+spec:
+  podSelector:
+    matchLabels:
+      app: agent-worker
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# This example deliberately does not add broad Internet egress.
+# In production, route agent traffic through a controlled egress proxy/gateway
+# and add only the DNS/proxy rules required by the chosen CNI and environment.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-worker-egress-proxy
+spec:
+  podSelector:
+    matchLabels:
+      app: agent-worker
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: agent-egress-proxy
+      ports:
+        - protocol: TCP
+          port: 8080
