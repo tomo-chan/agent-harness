@@ -64,9 +64,14 @@ The agent should normally be able to perform routine work without human interact
 - [Security Model](docs/03-security-model.md) ([日本語](docs/ja/03-security-model.md)) — threat model and defense-in-depth controls
 - [Adoption Guide](docs/04-adoption-guide.md) ([日本語](docs/ja/04-adoption-guide.md)) — staged adoption guide
 - [Product Mapping](docs/05-product-mapping.md) ([日本語](docs/ja/05-product-mapping.md)) — Claude Code / Codex / Devin CLI mapping
+- [Vendor Harness Implementations](docs/06-vendor-harnesses.md) ([日本語](docs/ja/06-vendor-harnesses.md)) — runnable Claude Code / Codex / Devin CLI harness configuration and adapters
+- [Implementation Decision Log](docs/decision-log.md) ([日本語](docs/ja/decision-log.md)) — architectural choices, temporary workarounds, and upgrade/revisit triggers
 - [`AGENTS.md`](AGENTS.md) — development instructions for coding agents
+- [`.claude/settings.json`](.claude/settings.json) — Claude Code project hooks
+- [`.codex/hooks.json`](.codex/hooks.json) — Codex project hooks
+- [`.devin/hooks.v1.json`](.devin/hooks.v1.json) / [`.devin/config.json`](.devin/config.json) — Devin CLI hooks and permissions
+- [`reference/harness/`](reference/harness/) — vendor-specific adapters
 - [`policy_engine.py`](reference/hooks/policy_engine.py) — vendor-neutral policy engine
-- [`pre_tool_use_adapter.py`](reference/hooks/pre_tool_use_adapter.py) — hook adapter example
 - [`policy.example.json`](reference/policies/policy.example.json) — example policy
 - [`completion_gate.sh`](reference/scripts/completion_gate.sh) — deterministic completion check
 - [`agent-pod.yaml`](reference/kubernetes/agent-pod.yaml) — hardened Pod example
