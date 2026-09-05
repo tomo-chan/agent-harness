@@ -76,6 +76,22 @@ def _is_mutation(action: dict[str, Any]) -> bool:
     return not bool(READ_ONLY_COMMAND_RE.search(command))
 
 
+def _active_repo_root(cwd: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+    except Exception:
+        return None
+    return str(Path(result.stdout.strip()).resolve()) if result.returncode == 0 and result.stdout.strip() else None
+
+
 def refresh_repository_posture(raw: dict[str, Any]):
     cwd = Path(str(raw.get("cwd") or os.getcwd()))
     session_id = str(raw.get("session_id") or f"pid-{os.getpid()}")
@@ -88,9 +104,10 @@ def current_repository_posture(raw: dict[str, Any], *, refresh_if_stale: bool = 
     cwd = Path(str(raw.get("cwd") or os.getcwd())).resolve()
     session_id = str(raw.get("session_id") or f"pid-{os.getpid()}")
     report = load_cached_posture(session_id)
+    current_root = _active_repo_root(cwd)
     stale = report is None
     if report is not None:
-        stale = stale or report.repo_root != str(cwd if (cwd / ".git").exists() else Path(report.repo_root))
+        stale = stale or current_root is None or report.repo_root != current_root
         stale = stale or (time.time() - report.checked_at > report.ttl_seconds)
     if stale and refresh_if_stale:
         try:
@@ -105,8 +122,7 @@ def repository_posture_context(raw: dict[str, Any]) -> str:
         report = refresh_repository_posture(raw)
     except Exception as exc:
         return f"Repository security posture UNKNOWN: checker failed: {exc}. Remote SCM mutations will be restricted."
-    source = f" policy={report.policy_source}."
-    return report.summary() + source
+    return report.summary() + f" policy={report.policy_source}."
 
 
 def _enforce_repository_posture(raw: dict[str, Any], action: dict[str, Any], result: Decision) -> Decision:
