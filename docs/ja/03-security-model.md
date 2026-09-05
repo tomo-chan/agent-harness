@@ -1,3 +1,5 @@
+[← 設計原則](02-design-principles.md) | [English](../03-security-model.md) | [次: 導入ガイド →](04-adoption-guide.md)
+
 # セキュリティモデル
 
 ## 脅威モデル
@@ -41,7 +43,7 @@ IAM/SCM authorization       external authority を制限
 Server-side protections     critical resource を最終防御
 ```
 
-単一レイヤーで全 failure mode を防ぐことは想定しません。
+単一レイヤーで全 failure mode を防ぐことは想定しません。各境界の責務は[リファレンスアーキテクチャ](01-architecture.md)を参照してください。
 
 ## Trusted Computing Base
 
@@ -61,7 +63,7 @@ Agent Runtime の外側にある network control を hard boundary とします�
 Agent Pod -> NetworkPolicy -> controlled egress proxy/gateway -> allowlisted services
 ```
 
-Cloud metadata endpoint、cluster administration endpoint、無関係な internal network は遮断します。Agent 内蔵の domain filtering は defense in depth として利用し、唯一の network boundary にはしません。
+Cloud metadata endpoint、cluster administration endpoint、無関係な internal network は遮断します。Agent 内蔵の domain filtering は defense in depth として利用し、唯一の network boundary にはしません。リファレンスは [`network-policy.yaml`](../../reference/kubernetes/network-policy.yaml) を参照してください。
 
 ## MCP / External Tool
 
@@ -77,7 +79,7 @@ Production data へのアクセスには read-only service account を優先し�
 
 ## Git / SCM
 
-`status`、`diff`、`log`、feature branch の commit / push、PR creation などの通常操作は許可しやすくします。一方、force push、protected branch mutation、tag/release creation、workflow modification、merge などは deny または approval 対象にします。
+`status`、`diff`、`log`、feature branch の commit / push、PR creation などの通常操作は許可しやすくします。一方、force push、protected branch mutation、tag/release creation、workflow modification、merge などは deny または approval 対象にします。分類例は [`policy.example.json`](../../reference/policies/policy.example.json) を参照してください。
 
 最終的な権威は SCM server-side rules です。Agent credential が ruleset や branch protection を bypass できてはいけません。
 
@@ -100,3 +102,7 @@ Hook は semantic policy に有効ですが、failure behavior は製品や vers
 - sandbox/network denial
 
 Raw secret はログに記録しません。OTel や集中分析基盤に流せる structured event を推奨します。
+
+---
+
+[← 設計原則](02-design-principles.md) | [English](../03-security-model.md) | [次: 導入ガイド →](04-adoption-guide.md)
