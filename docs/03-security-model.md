@@ -4,93 +4,74 @@
 
 ## Threat model
 
-Assume the agent can encounter:
+Assume the agent can encounter malicious instructions in source/issues/web/tool output, hallucinated or destructive commands, compromised dependencies, accidental credential disclosure, over-privileged MCP tools, incorrect repository/worktree selection, runaway retries, compromised local policy code, and attempts to reach cloud metadata or internal control-plane endpoints.
 
-- malicious instructions in source code, issues, web pages, documentation or tool output;
-- hallucinated or destructive commands;
-- dependency-install scripts and compromised packages;
-- accidental credential disclosure;
-- malicious or over-privileged MCP tools;
-- incorrect repository/worktree/branch selection;
-- runaway retry loops;
-- compromised hook/policy code;
-- attempts to access cloud metadata or internal control-plane endpoints.
+Also assume **credential compromise is possible**. The architecture must limit the damage even when a GitHub credential becomes visible to the agent.
 
-## Defense in depth
+## Defense in depth and responsibility separation
 
 ```mermaid
 flowchart TD
-    M[Model behavior] --> H[Semantic policy / hooks<br/>catch contextual risk]
+    M[Model behavior] --> SS[SessionStart posture check<br/>detect unsafe repository configuration]
+    SS --> H[Semantic policy / hooks<br/>classify contextual risk]
     H --> P[Permissions / rules<br/>limit routine tool authority]
-    P --> S[OS sandbox<br/>bound filesystem / network capabilities]
-    S --> C[Pod / container isolation<br/>protect host and peer workloads]
-    C --> N[Network enforcement<br/>bound destinations / protocols]
-    N --> I[IAM / SCM authorization<br/>bound external authority]
-    I --> R[Server-side protections<br/>protect critical resources]
+    P --> S[OS sandbox<br/>reduce filesystem/process/network capability]
+    S --> C[Single hardened container / Pod<br/>protect host and resources]
+    C --> I[IAM / SCM authorization<br/>contain credential compromise]
+    I --> R[GitHub rulesets / server-side policy<br/>authoritative resource protection]
 ```
 
-No single layer should be expected to catch every failure mode. The architecture behind these boundaries is described in [Reference Architecture](01-architecture.md).
+No single layer is expected to catch every failure. In particular, Sandbox does **not** own the responsibility of making repository safety depend on perfect credential secrecy.
 
 ## Trusted computing base
 
-Keep the TCB small. At minimum it includes the orchestrator, policy engine, sandbox implementation, workload isolation, credential broker and external authorization systems. Agent-generated code and model reasoning are not trusted components.
+Keep the TCB small. The baseline includes the orchestrator, policy engine, posture checker, sandbox implementation, workload isolation, credential issuance/authorization system, and external server-side policy. Agent-generated code and model reasoning are untrusted. A broker/sidecar is intentionally excluded from the default TCB because adding one creates additional privileged code and operational state.
+
+## Repository posture
+
+At SessionStart, verify assumptions that the local policy depends on: repository identity, default branch, required pull requests, force-push prevention, and required status checks where those controls can be read from GitHub.
+
+Checks are three-valued:
+
+- `pass`: the control is verified;
+- `fail`: the control is verified absent or non-compliant;
+- `unknown`: the control cannot currently be verified, for example because the API/plan/integration does not expose it.
+
+`unknown` must not be silently converted to `pass` or `fail`. The configured posture mode decides how to respond. See [DL-012](decisions/DL-012-sessionstart-repository-posture.md).
 
 ## Credentials
 
-Prefer workload identity and short-lived credentials. Do not mount broad personal credentials into the agent home directory. Where possible, credentials should be inaccessible to ordinary filesystem reads and injected only into the process or proxy that needs them.
+Prefer short-lived repository-scoped credentials and least privilege. Reduce exposure with sandbox deny paths, environment hygiene and semantic policy such as denying `gh auth token` or direct credential-file reads.
 
-Repository credentials should be scoped to required repositories and operations. Production credentials should normally be absent from coding-agent Pods.
+However, the security invariant is not "the agent can never observe a credential." The stronger invariant is:
+
+> Credential compromise must not imply unrestricted repository or organization authority.
+
+Contain compromise with narrow GitHub App/IAM permissions, short lifetime, server-side branch/ruleset enforcement, audit and revocation. Production credentials unrelated to coding work should normally be absent from agent Pods.
+
+## Sandbox
+
+The sandbox should bound ordinary filesystem, process and network capability and reduce secret exposure. It is a defense layer, not the sole authority boundary. Use vendor-native credential masking when it is reliable and convenient, but do not add privileged broker infrastructure solely to recreate masking on vendors that do not provide it.
 
 ## Network
 
-Use network controls outside the agent runtime as the hard boundary. A recommended pattern is:
-
-```mermaid
-flowchart LR
-    A[Agent Pod] --> N[NetworkPolicy]
-    N --> E[Controlled egress proxy / gateway]
-    E --> S[Allowlisted services]
-```
-
-Block cloud metadata endpoints, cluster administration endpoints and unrelated internal networks. Agent-native domain filtering can be used as defense in depth, not as the only network boundary. See the reference [`network-policy.yaml`](../reference/kubernetes/network-policy.yaml).
-
-## MCP and external tools
-
-MCP extends the agent's authority and therefore belongs inside the threat model. Combine:
-
-1. MCP tool permission/rule;
-2. semantic PreToolUse policy;
-3. MCP server authentication/authorization;
-4. least-privilege service account/IAM;
-5. audit logging.
-
-A read-only service account is preferable for production data access. Avoid exposing generic administrative MCP tools to autonomous sessions.
+Network controls should match the deployment threat model. Default-deny egress is valuable in environments with internal services or cloud metadata exposure, but native `git` / `gh` access to GitHub may be intentionally allowed. Where network access is broad, compensate with least-privilege credentials and strong server-side SCM policy.
 
 ## Git and SCM
 
-Allow routine operations such as status, diff, log, feature-branch commit/push and PR creation. Deny or require approval for force push, protected-branch mutation, tag/release creation, workflow modification and merge depending on organizational policy. The sample classifications are in [`policy.example.json`](../reference/policies/policy.example.json).
+Routine feature-branch work can be autonomous. Deny or require approval for force push, protected-branch mutation, tag/release creation, workflow modification and merge according to policy.
 
-SCM server-side rules are the final authority. An agent credential should not be able to bypass them.
+Before remote mutation, require repository posture to be `READY`. `RESTRICTED` allows local development but blocks operations such as `git push` and `gh pr create`. `BLOCKED` denies mutation.
+
+SCM server-side rules remain authoritative. An agent credential should not be able to bypass protected-branch invariants.
 
 ## Hook failure semantics
 
-Hooks are useful for semantic policy but their failure behavior varies by product and version. If a hook timeout, crash or malformed output can permit execution, treat the hook as fail-open. Protect invariants using sandbox, IAM and server-side controls that remain effective when the hook is absent.
+Hooks provide semantic policy but their failure behavior varies by vendor/version. A timeout/crash/malformed hook output must not be able to defeat IAM scope or server-side GitHub protections. Repository posture is advisory/fail-fast at SessionStart and enforced again at PreToolUse; it is not a replacement for GitHub-side controls.
 
 ## Audit
 
-Capture at least:
-
-- task/session/turn identifiers;
-- model/runtime/version;
-- policy version;
-- tool/action and normalized target;
-- allow/deny/ask decision and reason;
-- approval actor/scope/expiry;
-- execution outcome;
-- commit/PR/CI identifiers;
-- sandbox/network denials.
-
-Do not log raw secrets. Prefer structured events suitable for OTel or a centralized analytics store.
+Capture task/session/turn IDs, runtime/version, policy version, repository posture and check results, tool/action, allow/deny/ask decision, approvals, execution outcome, commit/PR/CI identifiers, and sandbox/network denials. Do not log raw secrets.
 
 ---
 
