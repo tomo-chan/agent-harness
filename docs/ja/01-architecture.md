@@ -1,3 +1,5 @@
+[← README](../../README.ja.md) | [English](../01-architecture.md) | [次: 設計原則 →](02-design-principles.md)
+
 # リファレンスアーキテクチャ
 
 ## 1. 目的
@@ -99,7 +101,7 @@ Policy Engine の基本結果は 3 種類です。
 8. 必須 CI/check が成功していること
 9. 必要な metadata / evidence が保存されていること
 
-Stop hook からこの Gate を利用して premature completion を拒否できます。ただし retry loop が無限化しないよう、Orchestrator 側に circuit breaker を設けます。
+実装例は [`completion_gate.sh`](../../reference/scripts/completion_gate.sh) を参照してください。Stop hook からこの Gate を利用して premature completion を拒否できます。ただし retry loop が無限化しないよう、Orchestrator 側に circuit breaker を設けます。
 
 ## 7. Subagent
 
@@ -122,4 +124,10 @@ Subagent は context isolation や並列調査には有効ですが、セキュ�
 - static cloud key ではなく workload identity
 - repository-scoped / short-lived SCM credential
 
+リファレンス: [`agent-pod.yaml`](../../reference/kubernetes/agent-pod.yaml) / [`network-policy.yaml`](../../reference/kubernetes/network-policy.yaml)
+
 Agent 内蔵 sandbox と Pod isolation は競合するのではなく補完関係です。Pod は host/process/resource isolation、Agent Sandbox は tool execution 単位の filesystem/network capability boundary を担います。
+
+---
+
+[← README](../../README.ja.md) | [English](../01-architecture.md) | [次: 設計原則 →](02-design-principles.md)
