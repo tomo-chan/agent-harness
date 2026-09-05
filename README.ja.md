@@ -8,34 +8,18 @@ Claude Code / OpenAI Codex / Devin CLI などの自律型ソフトウェア開�
 
 ## 基本アーキテクチャ
 
-```text
-Instructions / AGENTS.md / Skills
-              |
-              v
-        Agent Runtime
-              |
-        lifecycle hooks
-              v
-       Policy Engine
-       /     |      \
-    allow   ask     deny
-      |      |        |
-      |   Approval    +--> stop
-      |   Gateway
-      v
- Permissions / Rules
-              |
-              v
-          OS Sandbox
-              |
-              v
-       Container / Pod
-              |
-              v
-    IAM / SCM / Cloud Policy
-              |
-              v
-       External Systems
+```mermaid
+flowchart TD
+    A[Instructions / AGENTS.md / Skills] --> B[Agent Runtime]
+    B -->|lifecycle hooks| C[Policy Engine]
+    C -->|allow| D[Permissions / Rules]
+    C -->|ask| E[Approval Gateway]
+    C -->|deny| X[Stop]
+    E --> D
+    D --> F[OS Sandbox]
+    F --> G[Container / Pod]
+    G --> H[IAM / SCM / Cloud Policy]
+    H --> I[External Systems]
 ```
 
 各レイヤーの責務は明確に分離します。
@@ -53,19 +37,22 @@ Instructions / AGENTS.md / Skills
 
 ## 標準的な自律実行フロー
 
-```text
-Task
- -> リポジトリ調査（read-only）
- -> 変更が必要なら feature worktree / branch を作成
- -> 計画
- -> 編集
- -> test / lint / type-check
- -> policy / completion gate
- -> commit
- -> feature branch を push
- -> PR 作成
- -> CI / review
- -> 保護されたサーバー側フローで merge
+```mermaid
+flowchart LR
+    T[Task] --> I[リポジトリ調査<br/>read-only]
+    I --> W{変更が必要?}
+    W -->|はい| B[feature worktree / branch 作成]
+    W -->|いいえ| V[結果検証]
+    B --> P[計画]
+    P --> E[編集]
+    E --> Q[test / lint / type-check]
+    Q --> G[policy / completion gate]
+    G --> C[commit]
+    C --> U[feature branch を push]
+    U --> R[PR 作成]
+    R --> CI[CI / review]
+    CI --> M[保護された server-side merge]
+    V --> M
 ```
 
 通常業務は可能な限り人間の確認なしで完結させます。人間の承認は、静的ポリシーやサンドボックスだけでは安全に境界づけられない操作に限定します。
