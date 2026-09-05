@@ -77,10 +77,22 @@ Detailed record: [DL-012](decisions/DL-012-sessionstart-repository-posture.md).
 
 - Status: Accepted; Revisit on vendor change
 - Decision: Run a repository posture check at SessionStart, cache `READY` / `RESTRICTED` / `BLOCKED`, and refresh stale posture before remote SCM mutation.
+- Trusted identity: `AGENT_HARNESS_EXPECTED_REPOSITORY` is supplied by the trusted launcher; absence is `UNKNOWN`, mismatch is `BLOCKED`.
+- Minimum posture: repository-local `mode` cannot weaken `AGENT_HARNESS_MINIMUM_POSTURE_MODE`, whose default is `restricted`.
 - Missing config: use built-in `restricted` defaults.
 - Invalid explicit config: `BLOCKED`.
-- Unknown external state: preserve `UNKNOWN`; policy mode decides whether it blocks, restricts or warns.
+- Unknown external state: preserve `UNKNOWN`; effective policy mode decides whether it blocks, restricts or warns.
 - Enforcement: SessionStart detects/fails fast; PreToolUse enforces; GitHub Rulesets/IAM remain authoritative.
+
+## DL-013 — Canonical SCM publication commands
+
+Detailed record: [DL-013](decisions/DL-013-canonical-scm-publication.md).
+
+- Status: Accepted; Revisit on vendor change
+- Decision: Autonomous Git publication uses only `git push` and `git push --set-upstream origin HEAD`, followed by semantic repository/branch/upstream validation.
+- Compound shell: compound syntax is not autonomous even when the first command is read-only.
+- PR creation: `gh pr create` cannot override repository/head/base in the autonomous path.
+- Rationale: avoid attempting to safely interpret arbitrary shell/refspec syntax when a narrow structured publication path is sufficient.
 
 ## Maintenance rule
 
