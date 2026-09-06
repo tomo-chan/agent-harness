@@ -2,9 +2,9 @@
 
 The functions in this module mediate agent-issued actions visible at the hook
 boundary. They do not claim complete mediation of arbitrary child-process side
-effects. Repository authority state, canonical SCM publication, and completion
-checks are kept explicit so the security contract can be reviewed independently
-from vendor adapters.
+effects. Repository authority state, canonical SCM publication, control-plane
+publication approval, and completion checks are kept explicit so the security
+contract can be reviewed independently from vendor adapters.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from policy_engine import Decision, PolicyEngine  # noqa: E402
 
 DEFAULT_POLICY = ROOT / "reference" / "policies" / "policy.example.json"
 SCM_MUTATION_RE = re.compile(
-    r"(?i)^\s*(?:git\s+push\b|gh\s+pr\s+(?:create|merge)\b|gh\s+release\s+(?:create|edit|upload|delete)\b)"
+    r"(?i)\b(?:git\s+push\b|gh\s+pr\s+(?:create|merge)\b|gh\s+release\s+(?:create|edit|upload|delete)\b)"
 )
 READ_ONLY_COMMAND_RE = re.compile(
     r"(?i)^\s*(?:pwd|ls|find|rg|grep|cat|head|tail|wc|stat|file|tree|git\s+(?:status|diff|log|show|branch|rev-parse|worktree\s+list)\b|gh\s+pr\s+(?:view|status|checks)\b)"
@@ -41,6 +41,19 @@ CANONICAL_PUSH_FORMS = {
     ("git", "push"),
     ("git", "push", "--set-upstream", "origin", "HEAD"),
 }
+CONTROL_PLANE_PREFIXES = (
+    ".agent-harness/",
+    ".claude/",
+    ".codex/",
+    ".devin/",
+    ".github/workflows/",
+    "reference/harness/",
+    "reference/hooks/",
+    "reference/posture/",
+    "reference/policies/",
+    "reference/launcher/",
+)
+CONTROL_PLANE_FILES = {"AGENTS.md"}
 
 
 def read_stdin() -> dict[str, Any]:
@@ -101,7 +114,12 @@ def _has_compound_shell(command: str) -> bool:
 
 
 def _is_scm_mutation(action: dict[str, Any]) -> bool:
-    """Return whether an action directly requests a remote SCM mutation."""
+    """Conservatively detect a direct remote SCM mutation anywhere in a command.
+
+    The search is intentionally not anchored to the command prefix. Repository
+    authority must still apply when a remote mutation is hidden behind another
+    shell segment such as ``git status && git push``.
+    """
     return bool(SCM_MUTATION_RE.search(_command(action)))
 
 
@@ -127,13 +145,8 @@ def _run_git(cwd: Path, args: Sequence[str]) -> tuple[str | None, str | None]:
     """Run a bounded local Git query and return ``(stdout, error)``."""
     try:
         result = subprocess.run(
-            ["git", *args],
-            cwd=cwd,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=5,
-            check=False,
+            ["git", *args], cwd=cwd, text=True, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, timeout=5, check=False,
         )
     except Exception as exc:
         return None, str(exc)
@@ -188,11 +201,7 @@ def _current_branch(cwd: Path, rule: str) -> tuple[str | None, Decision | None]:
     """Resolve a named current branch or return a deny decision for detached state."""
     branch, error = _run_git(cwd, ["branch", "--show-current"])
     if error or not branch:
-        return None, Decision(
-            "deny",
-            f"cannot determine current branch: {error or 'detached HEAD'}",
-            rule,
-        )
+        return None, Decision("deny", f"cannot determine current branch: {error or 'detached HEAD'}", rule)
     return branch, None
 
 
@@ -205,13 +214,48 @@ def _checked_origin(cwd: Path, report, rule: str) -> Decision | None:
     return None
 
 
+def _is_control_plane_path(path: str) -> bool:
+    """Return whether a repository path belongs to the harness control plane."""
+    normalized = path.replace("\\", "/").lstrip("./")
+    return normalized in CONTROL_PLANE_FILES or normalized.startswith(CONTROL_PLANE_PREFIXES)
+
+
+def _control_plane_publication_decision(cwd: Path, report) -> Decision | None:
+    """Require approval when the branch would publish control-plane changes.
+
+    The check examines the committed branch diff against the remote default
+    branch rather than the editing mechanism. This covers changes introduced by
+    Write/Edit, ``apply_patch``, Git restore/checkout, scripts, or other local
+    mutation paths. Failure to establish the comparison fails closed.
+    """
+    if not report.default_branch:
+        return Decision("deny", "default branch is unavailable for control-plane diff validation", "control-plane-publication")
+    base = f"origin/{report.default_branch}...HEAD"
+    changed, error = _run_git(cwd, ["diff", "--name-only", base])
+    if error or changed is None:
+        return Decision(
+            "deny",
+            f"cannot establish control-plane publication diff against origin/{report.default_branch}: {error or 'unknown error'}",
+            "control-plane-publication",
+        )
+    protected = sorted(path for path in changed.splitlines() if path and _is_control_plane_path(path))
+    if protected:
+        sample = ", ".join(protected[:5])
+        suffix = "" if len(protected) <= 5 else f" (+{len(protected) - 5} more)"
+        return Decision(
+            "ask",
+            f"publishing control-plane changes requires explicit approval: {sample}{suffix}",
+            "control-plane-publication",
+        )
+    return None
+
+
 def _validate_canonical_push(raw: dict[str, Any], action: dict[str, Any], report) -> Decision | None:
     """Validate the direct autonomous Git publication contract.
 
     A permitted push must use one of the two canonical command shapes, run from
-    a non-default named branch, target the checked ``origin``, and use the
-    expected upstream semantics. The set-upstream form is reserved for first
-    publication only.
+    a non-default named branch, target the checked ``origin``, use the expected
+    upstream semantics, and pass control-plane publication review.
     """
     command = _command(action)
     tokens = _shell_tokens(command)
@@ -237,9 +281,7 @@ def _validate_canonical_push(raw: dict[str, Any], action: dict[str, Any], report
     if denied:
         return denied
 
-    upstream, upstream_error = _run_git(
-        cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]
-    )
+    upstream, upstream_error = _run_git(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
     if tuple(tokens) == ("git", "push"):
         expected = f"origin/{branch}"
         if upstream_error or upstream != expected:
@@ -248,14 +290,14 @@ def _validate_canonical_push(raw: dict[str, Any], action: dict[str, Any], report
                 f"canonical git push requires upstream {expected}; use `git push --set-upstream origin HEAD` for first publish",
                 "canonical-git-push",
             )
-    else:
-        if upstream is not None and upstream_error is None:
-            return Decision(
-                "deny",
-                "`git push --set-upstream origin HEAD` is only for first publication; an upstream already exists, so use `git push`",
-                "canonical-git-push",
-            )
-    return None
+    elif upstream is not None and upstream_error is None:
+        return Decision(
+            "deny",
+            "`git push --set-upstream origin HEAD` is only for first publication; an upstream already exists, so use `git push`",
+            "canonical-git-push",
+        )
+
+    return _control_plane_publication_decision(cwd, report)
 
 
 def _validate_pr_create(raw: dict[str, Any], action: dict[str, Any], report) -> Decision | None:
@@ -263,7 +305,8 @@ def _validate_pr_create(raw: dict[str, Any], action: dict[str, Any], report) -> 
 
     Repository, head, and base overrides are prohibited. The current branch must
     be a published non-default branch whose ``origin`` and upstream still match
-    the repository verified by SessionStart posture checking.
+    the repository verified by posture checking. Control-plane changes require
+    explicit publication approval regardless of how those files were edited.
     """
     command = _command(action)
     tokens = _shell_tokens(command)
@@ -286,19 +329,13 @@ def _validate_pr_create(raw: dict[str, Any], action: dict[str, Any], report) -> 
         return denied
     assert branch is not None
     if branch == report.default_branch:
-        return Decision(
-            "deny",
-            f"cannot create an autonomous PR from the default branch {branch}",
-            "canonical-pr-create",
-        )
+        return Decision("deny", f"cannot create an autonomous PR from the default branch {branch}", "canonical-pr-create")
 
     denied = _checked_origin(cwd, report, "canonical-pr-create")
     if denied:
         return denied
 
-    upstream, upstream_error = _run_git(
-        cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]
-    )
+    upstream, upstream_error = _run_git(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
     expected = f"origin/{branch}"
     if upstream_error or upstream != expected:
         return Decision(
@@ -306,15 +343,15 @@ def _validate_pr_create(raw: dict[str, Any], action: dict[str, Any], report) -> 
             f"autonomous PR creation requires published branch upstream {expected}; publish the current branch canonically first",
             "canonical-pr-create",
         )
-    return None
+    return _control_plane_publication_decision(cwd, report)
 
 
 def _enforce_repository_posture(raw: dict[str, Any], action: dict[str, Any], result: Decision) -> Decision:
     """Apply authority-state and semantic SCM constraints to a policy decision.
 
     ``BLOCKED`` and ``RESTRICTED`` are repository authority states, not ordinary
-    approval-class decisions. They are therefore enforced before ``allow`` or
-    ``ask`` handling so an approval cannot weaken a posture restriction.
+    approval-class decisions. They are enforced before approval so a lower-level
+    approval cannot weaken an authority restriction.
     """
     if action.get("event") != "PreToolUse":
         return result
@@ -346,16 +383,28 @@ def _enforce_repository_posture(raw: dict[str, Any], action: dict[str, Any], res
 
     tokens = _shell_tokens(command) or []
     if tokens[:2] == ["git", "push"]:
-        denied = _validate_canonical_push(raw, action, report)
-        return denied or result
+        return _validate_canonical_push(raw, action, report) or result
     if tokens[:3] == ["gh", "pr", "create"]:
-        denied = _validate_pr_create(raw, action, report)
-        return denied or result
+        return _validate_pr_create(raw, action, report) or result
     return result
 
 
+def _approved_rules() -> set[str]:
+    """Return trusted rule identifiers explicitly approved for this execution."""
+    return {
+        item.strip()
+        for item in os.environ.get("AGENT_HARNESS_APPROVED_RULES", "").split(",")
+        if item.strip()
+    }
+
+
 def evaluate(raw: dict[str, Any], vendor: str) -> Decision:
-    """Evaluate one hook action through policy, approval, and posture enforcement."""
+    """Evaluate one hook action through policy, posture, semantics, and approval.
+
+    Authority-state enforcement precedes approval. Approval is applied only to
+    the final ``ask`` result, including semantic publication review decisions,
+    so it cannot convert a ``BLOCKED``/``RESTRICTED`` denial into an allow.
+    """
     policy = Path(os.environ.get("AGENT_HARNESS_POLICY", str(DEFAULT_POLICY)))
     action = normalize(raw, vendor)
     try:
@@ -363,14 +412,11 @@ def evaluate(raw: dict[str, Any], vendor: str) -> Decision:
     except Exception as exc:
         return Decision("deny", f"policy evaluation failed closed: {exc}", "policy-error")
 
-    approved = {
-        item.strip()
-        for item in os.environ.get("AGENT_HARNESS_APPROVED_RULES", "").split(",")
-        if item.strip()
-    }
+    result = _enforce_repository_posture(raw, action, result)
+    approved = _approved_rules()
     if result.decision == "ask" and (result.rule in approved or "*" in approved):
-        result = Decision("allow", f"externally approved rule {result.rule}: {result.reason}", result.rule)
-    return _enforce_repository_posture(raw, action, result)
+        return Decision("allow", f"externally approved rule {result.rule}: {result.reason}", result.rule)
+    return result
 
 
 def completion_check(raw: dict[str, Any]) -> tuple[bool, str]:
@@ -380,12 +426,8 @@ def completion_check(raw: dict[str, Any]) -> tuple[bool, str]:
     env = os.environ.copy()
     try:
         completed = subprocess.run(
-            ["bash", str(gate)],
-            cwd=cwd,
-            env=env,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            ["bash", str(gate)], cwd=cwd, env=env, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             timeout=int(os.environ.get("AGENT_HARNESS_COMPLETION_TIMEOUT", "120")),
             check=False,
         )
