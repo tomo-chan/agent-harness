@@ -48,10 +48,22 @@
       "reason": "verification command"
     },
     {
-      "id": "allow-pr-create",
+      "id": "canonical-git-push",
       "tool_regex": "^(exec|Bash)$",
-      "command_regex": "^gh\\s+pr\\s+(create|view|status)\\b",
-      "reason": "pull-request workflow is within the normal autonomous boundary"
+      "command_regex": "^\\s*git\\s+push(?:\\s+--set-upstream)?\\s+origin\\s+HEAD:refs/heads/[^\\s;&|<>]+\\s*$",
+      "reason": "candidate canonical Git publication; semantic validation still applies"
+    },
+    {
+      "id": "canonical-pr-create",
+      "tool_regex": "^(exec|Bash)$",
+      "command_regex": "^\\s*gh\\s+pr\\s+create\\b[^;&|<>\\n]*$",
+      "reason": "candidate canonical PR creation; semantic validation still applies"
+    },
+    {
+      "id": "allow-pr-read",
+      "tool_regex": "^(exec|Bash)$",
+      "command_regex": "^gh\\s+pr\\s+(view|status|checks)\\b",
+      "reason": "read-only pull-request inspection"
     }
   ]
 }
