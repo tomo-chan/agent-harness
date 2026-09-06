@@ -75,11 +75,11 @@ This makes the publication decision independent of whether the change was produc
 
 ## Authoritative-state completion assurance
 
-SessionStart does not persist an authority-bearing completion snapshot. At Stop, the harness freshly evaluates repository posture and current Git state.
+SessionStart does not persist an authority-bearing completion snapshot, and local `refs/remotes/origin/*` refs are not treated as remote authority. At Stop, the harness freshly evaluates repository posture and current Git state, then queries the checked GitHub repository directly for the checked default branch head SHA.
 
-The delivery completion gate is skipped only when the current branch is the checked default branch, the worktree including untracked files is clean, and local `HEAD` exactly equals `origin/<checked-default-branch>`. This is evidence that no local repository delivery is pending. Every feature-branch, dirty, diverged, `BLOCKED`, or otherwise unverifiable state runs the full deterministic delivery gate.
+The delivery completion gate is skipped only when the current branch is the checked default branch, the worktree including untracked files is clean, and local `HEAD` exactly equals that GitHub-returned branch-head SHA. Every feature-branch, dirty, diverged, `BLOCKED`, or otherwise unverifiable state runs the full deterministic delivery gate.
 
-This avoids rejecting clean review/inspection sessions on the default branch without trusting mutable local session evidence. The claim is limited to repository delivery state and does not assert that the session produced no external side effects. See DL-020.
+This avoids rejecting clean review/inspection sessions on the default branch without trusting mutable local session evidence or a mutable local remote-tracking ref. The claim is limited to repository delivery state and does not assert that the session produced no external side effects. See DL-020.
 
 ## Vendor notes
 
@@ -108,7 +108,7 @@ AGENT_HARNESS_EXPECTED_REPOSITORY=owner/repository \
   python reference/launcher/preflight.py --json
 ```
 
-Regression coverage includes trusted-root isolation, monotonic trusted/repository posture composition, trusted launcher mode override, mutation-time posture re-evaluation, compound-shell remote mutation detection, canonical publication, all force-push variants, control-plane publication review, PR Git-state binding, authority-over-approval precedence, authoritative-state read-only completion, and required production-code docstrings.
+Regression coverage includes trusted-root isolation, monotonic trusted/repository posture composition, trusted launcher mode override, mutation-time posture re-evaluation, compound-shell remote mutation detection, canonical publication, all force-push variants, control-plane publication review, PR Git-state binding, authority-over-approval precedence, rejection of forged local remote-tracking refs as completion authority, authoritative GitHub branch-head completion evidence, and required production-code docstrings.
 
 ---
 
