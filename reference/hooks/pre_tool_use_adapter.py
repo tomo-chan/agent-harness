@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Normalize generic PreToolUse input and apply trusted policy plus S2 authority.
+"""Normalize generic PreToolUse input and apply S1-S3 guarantee logic.
 
-S1 supplies the trusted policy path. S2 then re-evaluates repository authority
-for mutations so a ``BLOCKED`` authority state precedes ordinary allow/ask
-policy decisions. S3 later adds the remote-SCM ``RESTRICTED`` classification.
+S1 supplies the trusted policy path. S2 applies repository authority before
+ordinary approval. S3 classifies direct SCM publication and validates the narrow
+autonomous publication forms without taking on S4 control-plane review.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ HARNESS_DIR = ROOT / "reference" / "harness"
 if str(HARNESS_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESS_DIR))
 
-from authority import enforce_repository_authority, is_mutation  # noqa: E402
 from policy_engine import Decision, PolicyEngine  # noqa: E402
+from scm_publication import validate_autonomous_publication  # noqa: E402
 
 
 def normalize(raw: dict) -> dict:
@@ -37,21 +37,18 @@ def normalize(raw: dict) -> dict:
 
 
 def evaluate(raw: dict) -> Decision:
-    """Evaluate trusted policy and then apply fresh S2 repository authority."""
+    """Evaluate trusted policy, S2 authority, and S3 publication semantics."""
     policy_value = os.environ.get("AGENT_HARNESS_POLICY")
     if not policy_value:
         return Decision(
-            "deny", "policy evaluation failed: AGENT_HARNESS_POLICY is required", "policy-error"
+            "deny",
+            "policy evaluation failed: AGENT_HARNESS_POLICY is required",
+            "policy-error",
         )
     try:
         action = normalize(raw)
         result = PolicyEngine.from_file(Path(policy_value)).evaluate(action)
-        return enforce_repository_authority(
-            raw,
-            result,
-            mutation=is_mutation(action),
-            restricted_operation=False,
-        )
+        return validate_autonomous_publication(raw, action, result)
     except Exception as exc:  # The hook boundary must never fail open.
         return Decision("deny", f"policy evaluation failed: {exc}", "policy-error")
 
