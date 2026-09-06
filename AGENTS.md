@@ -55,8 +55,8 @@ Do not weaken these invariants without an explicit architectural decision:
 - Direct mutation of protected/default branches must not be part of the normal autonomous path.
 - Production-impacting operations require an explicitly designed authorization path.
 - MCP and other external tools are part of the security boundary and require server-side authorization.
-- Completion is determined by machine-verifiable predicates, not by model claims or writable session snapshots. Only a clean checked default branch whose local `HEAD` equals `origin/<checked-default-branch>` receives the read-only repository exemption; every other or unverifiable state runs the full delivery completion gate.
-- Writable local state or caches may support context/performance but must not become authoritative evidence for mutation, approval, publication, or completion decisions when repository code can modify that state under the same operating-system identity.
+- Completion is determined by machine-verifiable predicates, not by model claims, writable session snapshots, or locally mutable remote-tracking refs. Only a clean checked default branch whose local `HEAD` equals the default-branch head SHA returned directly by the checked GitHub repository receives the read-only repository exemption; every other or unverifiable state runs the full delivery completion gate.
+- Writable local state, caches, snapshots, marker files, and local remote-tracking refs may support workflow mechanics but must not become authoritative evidence for mutation, approval, publication, or completion decisions when repository code can modify that state under the same operating-system identity.
 - Autonomous loops must have bounded retries, time, tool calls, and/or cost.
 
 ## Architecture conventions
@@ -80,7 +80,8 @@ flowchart LR
     CP --> A2
     A2 --> R[Vendor-specific response]
     ST[Stop] --> AR[Fresh posture + current Git evidence]
-    AR --> CG[Completion gate / read-only repository exemption]
+    AR --> GH[GitHub default-branch head]
+    GH --> CG[Completion gate / read-only repository exemption]
 ```
 
 Do not put vendor-specific semantics into the central policy engine unless they represent a genuinely vendor-neutral concept. Keep authoritative task state outside model context and outside mutable repository-controlled state.
@@ -115,7 +116,7 @@ When changing an English architecture document, update the corresponding Japanes
 - Treat protected control-plane files as publication-review artifacts. Edit-time path classification is defense in depth; publication-time diff evidence is the path-independent approval boundary.
 - Do not interpret an allowed test/build/tool invocation as proof that every nested subprocess or network side effect was mediated by hooks.
 - For invariants that must survive nested code execution, refine enforcement to sandbox/workload capability controls, IAM/SCM scope, network policy where required, and authoritative server-side rules.
-- Do not treat a writable cache, snapshot, marker file, or other state controlled by repository code as independent assurance evidence. Re-evaluate from trusted implementation and authoritative/current external or Git evidence when the decision affects mutation, approval, publication, or completion.
+- Do not treat a writable cache, snapshot, marker file, local remote-tracking ref, or other state controlled by repository code as independent assurance evidence. Re-evaluate from trusted implementation and authoritative/current external or Git evidence when the decision affects mutation, approval, publication, or completion.
 - Deny rules take precedence over ask/allow rules. Repository authority states such as `BLOCKED` and `RESTRICTED` take precedence over approval decisions.
 - Security-critical errors fail closed wherever the runtime permits it.
 - Never embed real secrets, tokens, account identifiers, private endpoints, or production credentials in examples/tests.
@@ -132,7 +133,7 @@ For harness changes, run:
 python -m pytest reference/hooks/tests reference/harness/tests reference/posture/tests -q
 ```
 
-Preserve regression coverage for safe read-only Git, all force-push forms including valued force-with-lease, approval-required actions, credential extraction denial, trusted harness root resolution, trusted/repository posture-policy composition, trusted launcher mode override, repository-local weakening attempts, repository posture state derivation, missing/mismatched trusted repository identity, mutation-time posture re-evaluation despite writable cache contents, `RESTRICTED` remote-mutation denial including compound commands, `BLOCKED` mutation denial and approval precedence, compound-shell bypass attempts, non-canonical direct push/refspec rejection, default-branch direct push rejection, origin/upstream mismatch, first-publication semantics, control-plane publication diff approval, PR repository/head/base override rejection, PR current-Git-state binding, authoritative-state read-only completion, changed/unverifiable-state delivery completion, and required production-code docstrings.
+Preserve regression coverage for safe read-only Git, all force-push forms including valued force-with-lease, approval-required actions, credential extraction denial, trusted harness root resolution, trusted/repository posture-policy composition, trusted launcher mode override, repository-local weakening attempts, repository posture state derivation, missing/mismatched trusted repository identity, mutation-time posture re-evaluation despite writable cache contents, `RESTRICTED` remote-mutation denial including compound commands, `BLOCKED` mutation denial and approval precedence, compound-shell bypass attempts, non-canonical direct push/refspec rejection, default-branch direct push rejection, origin/upstream mismatch, first-publication semantics, control-plane publication diff approval, PR repository/head/base override rejection, PR current-Git-state binding, rejection of local remote-tracking refs as completion authority, authoritative GitHub branch-head read-only completion, changed/unverifiable-state delivery completion, and required production-code docstrings.
 
 ## Decision log requirement
 
@@ -142,7 +143,7 @@ For temporary/vendor-dependent choices, record the limitation, workaround, and r
 
 ## Documentation expectations
 
-Distinguish trusted task identity, trusted posture baseline, repository posture overlay, posture detection, behavioral guidance, semantic policy, static permissions, SCM semantic validation, publication evidence, OS capability isolation, workload isolation, IAM/SCM containment, server-side enforcement, completion evidence, and observability. Do not describe a prompt, hook, deny-list, sandbox, credential secrecy assumption, mutable cache, or direct-command validator as a complete or independent security control when repository code can modify its evidence or a lower-level authority boundary exists.
+Distinguish trusted task identity, trusted posture baseline, repository posture overlay, posture detection, behavioral guidance, semantic policy, static permissions, SCM semantic validation, publication evidence, OS capability isolation, workload isolation, IAM/SCM containment, server-side enforcement, completion evidence, and observability. Do not describe a prompt, hook, deny-list, sandbox, credential secrecy assumption, mutable local state, local remote-tracking ref, or direct-command validator as a complete or independent security control when repository code can modify its evidence or a lower-level authority boundary exists.
 
 Japanese documentation must be written as Japanese documentation, not English terminology embedded in Japanese prose. Translate conceptual terms, headings, explanatory labels, and ordinary technical nouns into established Japanese terminology wherever a natural Japanese term exists. Keep the original spelling only when it is an identifier or proper name whose spelling is operationally significant, such as code symbols, environment variables, command names/options, file paths, protocol/product names, API fields, or values that must match an implementation. When an English term is useful for disambiguation, introduce it parenthetically on first use rather than repeatedly mixing English terminology into the Japanese text.
 
