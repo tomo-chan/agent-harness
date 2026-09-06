@@ -1,20 +1,22 @@
-"""Deterministic completion assurance without mutable session authority.
+"""Deterministic completion assurance without mutable local authority.
 
-Completion assurance must not trust state that repository code running under the
-same operating-system identity can rewrite. SessionStart therefore records no
-authoritative completion snapshot. At Stop, the harness re-evaluates repository
-posture and current Git state. A clean default branch exactly equal to the
-checked remote default branch is accepted as a read-only repository state;
-otherwise the normal delivery completion gate runs.
+Completion assurance must not trust evidence that repository code running under
+the same operating-system identity can rewrite. SessionStart records no
+authoritative completion snapshot, and local remote-tracking refs are not used as
+remote authority. At Stop, the harness re-evaluates repository posture, obtains
+the checked default branch head directly from GitHub, and compares it with the
+current local Git state. Otherwise the normal delivery completion gate runs.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Sequence
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[2]
 POSTURE_DIR = ROOT / "reference" / "posture"
@@ -25,7 +27,7 @@ from checker import check_repository_posture  # noqa: E402
 
 
 def _run_git(cwd: Path, args: Sequence[str]) -> tuple[str | None, str | None]:
-    """Run a bounded Git query used by completion assurance."""
+    """Run a bounded local Git query used by completion assurance."""
     try:
         result = subprocess.run(
             ["git", *args], cwd=cwd, text=True, stdout=subprocess.PIPE,
@@ -36,6 +38,33 @@ def _run_git(cwd: Path, args: Sequence[str]) -> tuple[str | None, str | None]:
     if result.returncode != 0:
         return None, (result.stderr or result.stdout or f"exit {result.returncode}").strip()
     return result.stdout.strip(), None
+
+
+def _github_branch_head(cwd: Path, repository: str, branch: str) -> tuple[str | None, str | None]:
+    """Return the authoritative GitHub branch-head SHA for a checked repository.
+
+    The query goes directly to GitHub through ``gh api`` instead of trusting the
+    local ``refs/remotes/origin/*`` namespace, which repository code running as
+    the same user can rewrite. Malformed or unavailable responses fail closed.
+    """
+    endpoint = f"repos/{repository}/git/ref/heads/{quote(branch, safe='')}"
+    try:
+        result = subprocess.run(
+            ["gh", "api", endpoint], cwd=cwd, text=True, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, timeout=15, check=False,
+        )
+    except Exception as exc:
+        return None, str(exc)
+    if result.returncode != 0:
+        return None, (result.stderr or result.stdout or f"exit {result.returncode}").strip()
+    try:
+        value = json.loads(result.stdout)
+        sha = value.get("object", {}).get("sha") if isinstance(value, dict) else None
+    except Exception as exc:
+        return None, f"invalid GitHub branch-ref JSON: {exc}"
+    if not isinstance(sha, str) or not sha:
+        return None, "GitHub branch-ref response does not contain object.sha"
+    return sha, None
 
 
 def capture_session_start(raw: dict[str, Any]) -> str:
@@ -50,18 +79,19 @@ def capture_session_start(raw: dict[str, Any]) -> str:
 
 
 def _clean_checked_default_branch(cwd: Path) -> tuple[bool, str]:
-    """Determine whether current Git state is a clean checked default branch.
+    """Determine whether current Git state equals the checked GitHub default head.
 
-    The decision uses a fresh repository-posture evaluation to obtain the
-    authoritative default branch and compares local HEAD with
-    ``origin/<default-branch>``. Failure to establish any evidence returns false
-    so the normal completion gate remains in force.
+    The decision freshly evaluates repository posture, requires the current
+    branch to be the checked default branch with a clean worktree, and compares
+    local ``HEAD`` with the branch-head SHA returned directly by GitHub. Failure
+    to establish any evidence returns false so the full completion gate remains
+    in force.
     """
     try:
         report = check_repository_posture(cwd)
     except Exception as exc:
         return False, f"posture evaluation failed: {exc}"
-    if report.state == "BLOCKED" or not report.default_branch:
+    if report.state == "BLOCKED" or not report.repository or not report.default_branch:
         return False, report.summary()
 
     branch, error = _run_git(cwd, ["branch", "--show-current"])
@@ -75,12 +105,12 @@ def _clean_checked_default_branch(cwd: Path) -> tuple[bool, str]:
     head, error = _run_git(cwd, ["rev-parse", "HEAD"])
     if error or not head:
         return False, error or "HEAD is unavailable"
-    remote_head, error = _run_git(cwd, ["rev-parse", f"origin/{report.default_branch}"])
+    remote_head, error = _github_branch_head(cwd, report.repository, report.default_branch)
     if error or not remote_head:
-        return False, error or "remote default branch is unavailable"
+        return False, error or "GitHub default branch head is unavailable"
     if head != remote_head:
-        return False, "local default branch differs from checked remote default branch"
-    return True, f"clean default branch {report.default_branch} matches origin/{report.default_branch}"
+        return False, "local default branch differs from the authoritative GitHub default branch"
+    return True, f"clean default branch {report.default_branch} matches GitHub branch head {remote_head}"
 
 
 def _run_completion_gate(cwd: Path) -> tuple[bool, str]:
@@ -100,13 +130,13 @@ def _run_completion_gate(cwd: Path) -> tuple[bool, str]:
 
 
 def completion_check(raw: dict[str, Any]) -> tuple[bool, str]:
-    """Accept only clean checked default state or a passing delivery gate.
+    """Accept only authoritative clean default state or a passing delivery gate.
 
-    A clean local default branch that exactly matches the checked remote default
-    branch is sufficient evidence that no local repository delivery is pending.
-    Every other state, including unverifiable state, runs the full deterministic
-    completion gate. This claim concerns repository state only and does not imply
-    absence of external side effects during the session.
+    A clean local checked default branch whose ``HEAD`` exactly matches the
+    branch-head SHA returned directly by GitHub is sufficient evidence that no
+    local repository delivery is pending. Every other or unverifiable state runs
+    the full deterministic completion gate. This claim concerns repository state
+    only and does not imply absence of external side effects during the session.
     """
     cwd = Path(str(raw.get("cwd") or os.getcwd())).resolve()
     read_only, reason = _clean_checked_default_branch(cwd)
