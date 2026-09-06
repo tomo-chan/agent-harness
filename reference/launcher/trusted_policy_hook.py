@@ -9,8 +9,11 @@ adapter plus trusted policy inputs inside ``AGENT_HARNESS_TRUSTED_ROOT``.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
+
+_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
 def _inside(root: Path, path: Path) -> bool:
@@ -33,8 +36,21 @@ def _trusted_file(root: Path, env_name: str, default: Path) -> Path:
     return path
 
 
+def _trusted_repository() -> str | None:
+    """Return the deployment-supplied expected repository in canonical form."""
+    value = os.environ.get("AGENT_HARNESS_TRUSTED_EXPECTED_REPOSITORY")
+    if value is None:
+        return None
+    value = value.strip()
+    if not _REPOSITORY_RE.fullmatch(value):
+        raise RuntimeError(
+            "AGENT_HARNESS_TRUSTED_EXPECTED_REPOSITORY must be owner/repository"
+        )
+    return value
+
+
 def main() -> int:
-    """Validate trusted files, bind policy inputs, and exec the fixed adapter."""
+    """Validate trusted files and identity, then exec the fixed policy adapter."""
     configured = os.environ.get("AGENT_HARNESS_TRUSTED_ROOT")
     if not configured:
         print("AGENT_HARNESS_TRUSTED_ROOT is required", file=sys.stderr)
@@ -60,6 +76,7 @@ def main() -> int:
             "AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY",
             trusted_root / "reference" / "policies" / "repository-security.example.json",
         )
+        expected_repository = _trusted_repository()
         adapter = (
             trusted_root / "reference" / "hooks" / "pre_tool_use_adapter.py"
         ).resolve()
@@ -73,6 +90,11 @@ def main() -> int:
     os.environ["AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY"] = str(
         repository_security
     )
+    if expected_repository is None:
+        os.environ.pop("AGENT_HARNESS_EXPECTED_REPOSITORY", None)
+    else:
+        os.environ["AGENT_HARNESS_EXPECTED_REPOSITORY"] = expected_repository
+
     os.environ.pop("AGENT_POLICY", None)
     os.environ.pop("AGENT_HARNESS_REPOSITORY_SECURITY_POLICY", None)
     os.environ.pop("AGENT_HARNESS_MINIMUM_POSTURE_MODE", None)
