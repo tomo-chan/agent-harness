@@ -3,8 +3,13 @@
 
 This module is part of the production trust boundary. It validates that the
 configured harness root matches the installation containing this file, resolves
-policy and adapter paths only inside that root, and then replaces the current
-process with the selected vendor adapter.
+trusted policy and adapter paths only inside that root, and then replaces the
+current process with the selected vendor adapter.
+
+Repository-local posture configuration is intentionally not replaced here. The
+trusted posture file is exported as a minimum baseline; the checker later treats
+``.agent-harness/security.json`` as untrusted input that may only strengthen that
+baseline.
 """
 
 from __future__ import annotations
@@ -79,7 +84,7 @@ def main() -> int:
             "AGENT_HARNESS_TRUSTED_POLICY",
             trusted_root / "reference" / "policies" / "policy.example.json",
         )
-        repository_policy = _trusted_path(
+        posture_baseline = _trusted_path(
             trusted_root,
             "AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY",
             trusted_root / "reference" / "policies" / "repository-security.example.json",
@@ -93,11 +98,9 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 2
 
-    # The existing harness modules already consume these variables. Override them here
-    # so repository-controlled files cannot redirect production evaluation to a mutable
-    # policy or posture policy.
     os.environ["AGENT_HARNESS_POLICY"] = str(policy)
-    os.environ["AGENT_HARNESS_REPOSITORY_SECURITY_POLICY"] = str(repository_policy)
+    os.environ["AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY"] = str(posture_baseline)
+    os.environ.pop("AGENT_HARNESS_REPOSITORY_SECURITY_POLICY", None)
 
     os.execv(sys.executable, [sys.executable, str(adapter)])
     return 127
