@@ -8,6 +8,7 @@ control-plane publication review belongs to S4 and is intentionally absent here.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -21,6 +22,10 @@ if str(ROOT) not in sys.path:
 from reference.harness import authority  # noqa: E402
 from reference.hooks.policy_engine import Decision  # noqa: E402
 from reference.posture.checker import parse_github_repository  # noqa: E402
+
+_SCM_PUBLICATION_RE = re.compile(
+    r"(?i)(?:\bgit\b[^\n;&|<>]*\bpush\b|\bgh\b[^\n;&|<>]*\bpr\s+create\b)"
+)
 
 
 def _command(action: dict[str, Any]) -> str:
@@ -56,19 +61,14 @@ def has_compound_shell(command: str) -> bool:
 
 
 def is_scm_publication(action: dict[str, Any]) -> bool:
-    """Classify directly observable Git/GitHub publication commands.
+    """Detect recognizable direct SCM publication anywhere in observed shell text.
 
-    This intentionally covers only direct commands visible at the hook boundary;
-    aliases, arbitrary child processes, and credential misuse are outside S3.
+    Detection is intentionally broader than the autonomous canonical forms so a
+    compound shell such as ``git status && git push ...`` is still classified as
+    a restricted publication before approval. Aliases, arbitrary child processes,
+    and credential misuse remain outside S3's observation boundary.
     """
-    tokens = _shell_tokens(_command(action))
-    if not tokens:
-        return False
-    if tokens[:2] == ["git", "push"]:
-        return True
-    if tokens[:3] == ["gh", "pr", "create"]:
-        return True
-    return False
+    return bool(_SCM_PUBLICATION_RE.search(_command(action)))
 
 
 def _run_git(cwd: Path, args: Sequence[str]) -> tuple[str | None, str | None]:
@@ -171,12 +171,6 @@ def _validate_push(
     tokens = _shell_tokens(command)
     if not tokens or tokens[:2] != ["git", "push"]:
         return Decision("deny", "invalid canonical push command", "canonical-git-push")
-    if has_compound_shell(command):
-        return Decision(
-            "ask",
-            "compound shell syntax is outside the autonomous allowlist",
-            "compound-shell",
-        )
 
     cwd = Path(str(raw.get("cwd") or os.getcwd())).resolve()
     branch, denied = _current_branch(cwd, "canonical-git-push")
@@ -237,12 +231,6 @@ def _validate_pr_create(
     tokens = _shell_tokens(command)
     if not tokens or tokens[:3] != ["gh", "pr", "create"]:
         return Decision("deny", "invalid PR creation command", "canonical-pr-create")
-    if has_compound_shell(command):
-        return Decision(
-            "ask",
-            "compound shell syntax is outside the autonomous allowlist",
-            "compound-shell",
-        )
     forbidden = {"--repo", "-R", "--head", "-H", "--base", "-B"}
     if any(token in forbidden for token in tokens[3:]):
         return Decision(
@@ -284,6 +272,7 @@ def validate_autonomous_publication(
     raw: dict[str, Any], action: dict[str, Any], result: Decision
 ) -> Decision:
     """Apply S2 authority and S3 publication semantics to one policy decision."""
+    command = _command(action)
     publication = is_scm_publication(action)
     result = authority.enforce_repository_authority(
         raw,
@@ -291,9 +280,19 @@ def validate_autonomous_publication(
         mutation=authority.is_mutation(action),
         restricted_operation=publication,
     )
-    if result.decision == "deny" or not publication:
+    if result.decision == "deny":
         return result
-    if result.decision != "allow":
+
+    if has_compound_shell(command):
+        if publication or result.decision == "allow":
+            return Decision(
+                "ask",
+                "compound shell syntax is outside the autonomous allowlist",
+                "compound-shell",
+            )
+        return result
+
+    if not publication or result.decision != "allow":
         return result
 
     report, denied = _ready_report(raw)
@@ -301,9 +300,13 @@ def validate_autonomous_publication(
         return denied
     assert report is not None
 
-    tokens = _shell_tokens(_command(action)) or []
+    tokens = _shell_tokens(command) or []
     if tokens[:2] == ["git", "push"]:
         return _validate_push(raw, action, report) or result
     if tokens[:3] == ["gh", "pr", "create"]:
         return _validate_pr_create(raw, action, report) or result
-    return result
+    return Decision(
+        "ask",
+        "SCM publication syntax is outside the autonomous canonical forms",
+        "noncanonical-publication",
+    )
