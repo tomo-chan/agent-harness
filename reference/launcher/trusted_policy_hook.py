@@ -3,7 +3,7 @@
 
 S1 establishes only the trusted execution and policy boundary. Vendor-specific
 adapter selection belongs to S6, so this launcher binds one fixed generic hook
-adapter and one trusted policy file inside ``AGENT_HARNESS_TRUSTED_ROOT``.
+adapter plus trusted policy inputs inside ``AGENT_HARNESS_TRUSTED_ROOT``.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def _trusted_file(root: Path, env_name: str, default: Path) -> Path:
 
 
 def main() -> int:
-    """Validate the trusted root, bind trusted policy, and exec the fixed adapter."""
+    """Validate trusted files, bind policy inputs, and exec the fixed adapter."""
     configured = os.environ.get("AGENT_HARNESS_TRUSTED_ROOT")
     if not configured:
         print("AGENT_HARNESS_TRUSTED_ROOT is required", file=sys.stderr)
@@ -55,6 +55,11 @@ def main() -> int:
             "AGENT_HARNESS_TRUSTED_POLICY",
             trusted_root / "reference" / "policies" / "policy.example.json",
         )
+        repository_security = _trusted_file(
+            trusted_root,
+            "AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY",
+            trusted_root / "reference" / "policies" / "repository-security.example.json",
+        )
         adapter = (
             trusted_root / "reference" / "hooks" / "pre_tool_use_adapter.py"
         ).resolve()
@@ -65,7 +70,12 @@ def main() -> int:
         return 2
 
     os.environ["AGENT_HARNESS_POLICY"] = str(policy)
+    os.environ["AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY"] = str(
+        repository_security
+    )
     os.environ.pop("AGENT_POLICY", None)
+    os.environ.pop("AGENT_HARNESS_REPOSITORY_SECURITY_POLICY", None)
+    os.environ.pop("AGENT_HARNESS_MINIMUM_POSTURE_MODE", None)
     os.execv(sys.executable, [sys.executable, str(adapter)])
     return 127
 
