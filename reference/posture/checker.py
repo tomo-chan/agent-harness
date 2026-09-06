@@ -108,15 +108,16 @@ class RepositorySecurityPolicy:
 
     @classmethod
     def load_effective(cls, repo_root: Path) -> tuple["RepositorySecurityPolicy", str]:
-        """Monotonically combine trusted baseline and repository-local overlay.
+        """Combine trusted launcher policy and repository overlay monotonically.
 
-        The trusted baseline is selected by
-        ``AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY`` and otherwise falls
-        back to built-in restricted defaults. The repository overlay is always
-        read from ``.agent-harness/security.json`` when present. The overlay may
-        strengthen mode or requirements, shorten the cache TTL, and declare an
-        additional expected-repository consistency check, but it cannot weaken
-        the trusted baseline.
+        ``AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY`` supplies the trusted
+        baseline file. A trusted launcher may explicitly override only the
+        baseline mode through ``AGENT_HARNESS_MINIMUM_POSTURE_MODE``; this keeps
+        the established interactive ``warn`` use case while requirements and TTL
+        remain anchored in the trusted baseline file. The repository overlay at
+        ``.agent-harness/security.json`` may then strengthen mode or requirements,
+        shorten TTL, and add an expected-repository consistency claim, but cannot
+        weaken the resulting trusted baseline.
         """
         trusted_path_value = os.environ.get("AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY")
         if trusted_path_value:
@@ -128,6 +129,18 @@ class RepositorySecurityPolicy:
         else:
             baseline = cls.from_mapping(DEFAULT_POLICY)
             trusted_source = "built-in restricted defaults"
+
+        launcher_mode = os.environ.get("AGENT_HARNESS_MINIMUM_POSTURE_MODE")
+        if launcher_mode is not None:
+            if launcher_mode not in MODE_RANK:
+                raise ValueError("AGENT_HARNESS_MINIMUM_POSTURE_MODE must be strict, restricted, or warn")
+            baseline = cls(
+                launcher_mode,
+                baseline.ttl_seconds,
+                dict(baseline.requirements),
+                baseline.expected_repository,
+            )
+            trusted_source = f"{trusted_source}; launcher_mode={launcher_mode}"
 
         overlay_path = repo_root / ".agent-harness" / "security.json"
         if not overlay_path.exists():
