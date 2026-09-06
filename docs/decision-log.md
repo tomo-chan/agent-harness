@@ -44,8 +44,9 @@ This log records implementation choices that shape the harness. Detailed records
 
 ## DL-007 — Project-local hooks locate the active worktree dynamically
 
-- Status: Accepted
-- Decision: Resolve the repository root with `git rev-parse --show-toplevel` instead of embedding checkout paths.
+- Status: Superseded by DL-015
+- Historical decision: Resolve the repository root with `git rev-parse --show-toplevel` instead of embedding checkout paths.
+- Superseded because: executing policy/assurance code from the agent-mutable worktree violates the trusted harness boundary. Production hook execution now resolves from `AGENT_HARNESS_TRUSTED_ROOT`; repository/worktree discovery remains runtime input to posture and SCM validation, not the source of the verifier implementation.
 
 ## DL-008 — Harness/config files are security-sensitive
 
@@ -93,6 +94,17 @@ Detailed record: [DL-013](decisions/DL-013-canonical-scm-publication.md).
 - Compound shell: compound syntax is not autonomous even when the first command is read-only.
 - PR creation: `gh pr create` cannot override repository/head/base in the autonomous path.
 - Rationale: avoid attempting to safely interpret arbitrary shell/refspec syntax when a narrow structured publication path is sufficient.
+
+## DL-015 — Trusted harness boundary
+
+Detailed record: [DL-015](decisions/DL-015-trusted-harness-boundary.md).
+
+- Status: Accepted; Revisit on vendor/runtime change
+- Decision: Production policy, posture, SCM semantic validation, and completion code execute from `AGENT_HARNESS_TRUSTED_ROOT`, provisioned outside the agent-mutable workspace.
+- Baseline realization: bake the approved harness snapshot into `/opt/agent-harness` on the read-only container root filesystem while keeping `/workspace` mutable.
+- Policy source: the trusted wrapper pins semantic and repository-posture policy to the trusted root rather than allowing repository-controlled files to become the production normative policy.
+- Hook registration: project-local hook files are reference/development wiring; production should provision registration from trusted launcher/managed configuration where the vendor provides such a mechanism.
+- RAEM invariant: an assurance/policy mechanism used as an independent authority boundary must not depend on implementation controlled by the subject it evaluates.
 
 ## Maintenance rule
 
