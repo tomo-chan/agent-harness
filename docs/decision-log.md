@@ -56,7 +56,7 @@ This log records implementation choices that shape the harness. Detailed records
 ## DL-009 — Stop hooks use deterministic completion gates
 
 - Status: Accepted; refined by DL-020
-- Decision: Stop hooks use deterministic completion assurance. Read-only sessions may complete from unchanged repository-state evidence; changed or unverifiable state runs the full delivery gate.
+- Decision: Stop hooks use deterministic completion assurance. A clean checked default branch equal to its checked remote branch may complete as read-only repository state; every other or unverifiable state runs the full delivery gate.
 
 ## DL-010 — Hooks are defense in depth, not final authority
 
@@ -77,13 +77,13 @@ Detailed record: [DL-011](decisions/DL-011-sandbox-first-credential-isolation.md
 Detailed record: [DL-012](decisions/DL-012-sessionstart-repository-posture.md).
 
 - Status: Accepted; refined by DL-018; Revisit on vendor change
-- Decision: Run a repository posture check at SessionStart, cache `READY` / `RESTRICTED` / `BLOCKED`, and refresh stale posture before remote SCM mutation.
+- Decision: Run a repository posture check at SessionStart for early context, but re-evaluate posture before mutation enforcement rather than trusting the writable session cache as authority.
 - Trusted identity: `AGENT_HARNESS_EXPECTED_REPOSITORY` is supplied by the trusted launcher; absence is `UNKNOWN`, mismatch is `BLOCKED`.
 - Effective posture policy: a trusted baseline and repository-local overlay are combined monotonically; repository-local policy may strengthen but never weaken trusted requirements.
 - Missing repository overlay: trusted baseline remains effective.
 - Invalid trusted or repository policy: `BLOCKED`.
 - Unknown external state: preserve `UNKNOWN`; effective policy mode decides whether it blocks, restricts or warns.
-- Enforcement: SessionStart detects/fails fast; PreToolUse enforces; GitHub Rulesets/IAM remain authoritative.
+- Enforcement: SessionStart detects/fails fast; PreToolUse re-evaluates and enforces; GitHub Rulesets/IAM remain authoritative.
 
 ## DL-013 — Canonical SCM publication commands
 
@@ -142,13 +142,13 @@ Detailed record: [DL-019](decisions/DL-019-control-plane-publication-review.md).
 - Decision: Before canonical push or autonomous PR creation, inspect the committed diff against the remote default branch and require explicit approval when protected control-plane paths changed.
 - Rationale: enforce the review claim from publication evidence instead of depending on every mutation mechanism exposing target paths.
 
-## DL-020 — Session-aware completion assurance
+## DL-020 — Authoritative-state completion assurance
 
 Detailed record: [DL-020](decisions/DL-020-session-aware-completion-assurance.md).
 
 - Status: Accepted
-- Decision: Capture repository root, HEAD and exact worktree state at SessionStart. Unchanged state is read-only; changed or unverifiable state runs the full delivery completion gate.
-- Failure semantics: missing or invalid baseline never implies read-only.
+- Decision: Do not persist an authority-bearing SessionStart completion baseline. At Stop, freshly establish posture and Git state; only a clean checked default branch exactly equal to `origin/<default>` receives the read-only repository exemption.
+- Failure semantics: every other or unverifiable state runs the full delivery completion gate.
 
 ## Maintenance rule
 
