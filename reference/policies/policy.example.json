@@ -32,7 +32,7 @@
     },
     {
       "id": "git-force-push",
-      "command_regex": "(?i)\\bgit\\s+push\\b[^\\n]*(--force(?:-with-lease)?|-f)(?:\\s|$)",
+      "command_regex": "(?i)\\bgit\\s+push\\b[^\\n]*(--force(?:-with-lease(?:=[^\\s]+)?)?|-f)(?:\\s|$)",
       "reason": "Force push is prohibited for autonomous sessions."
     }
   ],
