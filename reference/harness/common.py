@@ -18,6 +18,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any, Sequence
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[2]
 HOOKS_DIR = ROOT / "reference" / "hooks"
@@ -163,6 +164,34 @@ def _run_git(cwd: Path, args: Sequence[str]) -> tuple[str | None, str | None]:
     return result.stdout.strip(), None
 
 
+def _github_branch_head(cwd: Path, repository: str, branch: str) -> tuple[str | None, str | None]:
+    """Return a branch-head SHA directly from the checked GitHub repository.
+
+    Local remote-tracking refs are mutable by repository code running under the
+    same operating-system identity, so they cannot be independent publication
+    evidence. GitHub is queried directly and malformed/unavailable results fail
+    closed at the caller.
+    """
+    endpoint = f"repos/{repository}/git/ref/heads/{quote(branch, safe='')}"
+    try:
+        result = subprocess.run(
+            ["gh", "api", endpoint], cwd=cwd, text=True, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, timeout=15, check=False,
+        )
+    except Exception as exc:
+        return None, str(exc)
+    if result.returncode != 0:
+        return None, (result.stderr or result.stdout or f"exit {result.returncode}").strip()
+    try:
+        value = json.loads(result.stdout)
+        sha = value.get("object", {}).get("sha") if isinstance(value, dict) else None
+    except Exception as exc:
+        return None, f"invalid GitHub branch-ref JSON: {exc}"
+    if not isinstance(sha, str) or not sha:
+        return None, "GitHub branch-ref response does not contain object.sha"
+    return sha, None
+
+
 def _active_repo_root(cwd: Path) -> str | None:
     """Resolve the active Git repository root for posture-cache context checks."""
     value, _ = _run_git(cwd, ["rev-parse", "--show-toplevel"])
@@ -239,21 +268,36 @@ def _is_control_plane_path(path: str) -> bool:
 
 
 def _control_plane_publication_decision(cwd: Path, report) -> Decision | None:
-    """Require approval when the branch would publish control-plane changes.
+    """Require approval for control-plane changes using authoritative base SHA.
 
-    The check examines the committed branch diff against the remote default
-    branch rather than the editing mechanism. This covers changes introduced by
-    Write/Edit, ``apply_patch``, Git restore/checkout, scripts, or other local
-    mutation paths. Failure to establish the comparison fails closed.
+    The default-branch head is fetched directly from the checked GitHub
+    repository, then the committed branch diff is evaluated against that exact
+    SHA. Local ``origin/<default>`` refs are deliberately ignored because the
+    evaluated repository can rewrite them. If the authoritative commit object is
+    not available locally or the diff cannot be established, validation fails
+    closed rather than falling back to a mutable ref.
     """
-    if not report.default_branch:
-        return Decision("deny", "default branch is unavailable for control-plane diff validation", "control-plane-publication")
-    base = f"origin/{report.default_branch}...HEAD"
-    changed, error = _run_git(cwd, ["diff", "--name-only", base])
-    if error or changed is None:
+    if not report.repository or not report.default_branch:
+        return Decision("deny", "checked repository/default branch is unavailable for control-plane diff validation", "control-plane-publication")
+    base_sha, error = _github_branch_head(cwd, report.repository, report.default_branch)
+    if error or not base_sha:
         return Decision(
             "deny",
-            f"cannot establish control-plane publication diff against origin/{report.default_branch}: {error or 'unknown error'}",
+            f"cannot obtain authoritative GitHub default-branch head: {error or 'unknown error'}",
+            "control-plane-publication",
+        )
+    _, object_error = _run_git(cwd, ["cat-file", "-e", f"{base_sha}^{{commit}}"])
+    if object_error:
+        return Decision(
+            "deny",
+            f"authoritative GitHub base commit {base_sha} is not available locally for diff validation",
+            "control-plane-publication",
+        )
+    changed, diff_error = _run_git(cwd, ["diff", "--name-only", f"{base_sha}...HEAD"])
+    if diff_error or changed is None:
+        return Decision(
+            "deny",
+            f"cannot establish control-plane publication diff against GitHub base {base_sha}: {diff_error or 'unknown error'}",
             "control-plane-publication",
         )
     protected = sorted(path for path in changed.splitlines() if path and _is_control_plane_path(path))
