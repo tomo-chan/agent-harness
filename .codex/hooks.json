@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/reference/harness/codex.py\"",
+            "command": "python3 \"${AGENT_HARNESS_TRUSTED_ROOT:?AGENT_HARNESS_TRUSTED_ROOT is required}/reference/launcher/trusted_hook.py\" codex",
             "statusMessage": "agent-harness repository posture check"
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/reference/harness/codex.py\"",
+            "command": "python3 \"${AGENT_HARNESS_TRUSTED_ROOT:?AGENT_HARNESS_TRUSTED_ROOT is required}/reference/launcher/trusted_hook.py\" codex",
             "statusMessage": "agent-harness policy check"
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/reference/harness/codex.py\"",
+            "command": "python3 \"${AGENT_HARNESS_TRUSTED_ROOT:?AGENT_HARNESS_TRUSTED_ROOT is required}/reference/launcher/trusted_hook.py\" codex",
             "statusMessage": "agent-harness completion check"
           }
         ]
