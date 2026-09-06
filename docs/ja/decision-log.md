@@ -1,122 +1,124 @@
-# 実装 Decision Log
+# 実装判断記録
 
-[English](../decision-log.md) | [Vendor Harness 実装](06-vendor-harnesses.md) | [README](../../README.ja.md)
+[English](../decision-log.md) | [ベンダー別ハーネス実装](06-vendor-harnesses.md) | [README](../../README.ja.md)
 
-Harness の設計・実装に影響する判断を記録します。詳細レコードは [`docs/ja/decisions/`](decisions/) 配下に置きます。
+ハーネスの設計・実装に影響する判断を記録する。詳細な判断記録は [`docs/ja/decisions/`](decisions/) 配下に置く。
 
-## Status
+## 状態の表記
 
-- **Accepted** — 現在採用中
-- **Temporary** — 現在の Vendor / Runtime 制約への暫定対応
-- **Superseded** — 履歴として残すが現在は不採用
-- **Vendor Update 時に再評価** — upstream 変更時に再検証
+- **採用** — 現在の設計判断
+- **暫定** — 現在のベンダーまたは実行環境の制約に対する一時的な対応
+- **廃止** — 履歴として残すが現在は採用しない
+- **ベンダー更新時に再評価** — 上流仕様が変わった場合に再検証する
 
-## DL-001 — Central Vendor-neutral Policy Engine
+## DL-001 — ベンダー非依存の中央方針エンジン
 
-- Status: Accepted
-- 判断: Vendor Hook Input を共通 Action Model に正規化し、1つの deny-first Policy Engine で評価する。
+- 状態: 採用
+- 判断: ベンダーごとのフック入力を共通の操作モデルへ正規化し、1つの拒否優先方針エンジンで評価する。
 
-## DL-002 — Policy precedence は deny > ask > allow
+## DL-002 — 方針の優先順位は拒否 > 承認要求 > 許可
 
-- Status: Accepted
-- 判断: 記述順に依存せず deny を最優先する。
+- 状態: 採用
+- 判断: 記述順に依存せず、拒否規則を最優先する。
 
-## DL-003 — Policy 評価エラーは fail-closed
+## DL-003 — 方針評価エラーは安全側に倒す
 
-- Status: Accepted
-- 判断: Invalid Policy / Malformed Input / Adapter Evaluation Error は Adapter Boundary で deny / block とする。Vendor Runtime 自体の Hook Failure は下位 Security Layer でも補完する。
+- 状態: 採用
+- 判断: 不正な方針、壊れた入力、アダプター評価エラーはアダプター境界で拒否または停止とする。ベンダー実行環境そのもののフック障害は、下位のセキュリティ層でも補完する。
 
-## DL-004 — Codex `ask` は native enforcement まで deny
+## DL-004 — Codexの `ask` はネイティブな強制が安定するまで拒否へ変換
 
-- Status: Temporary / Vendor Update 時に再評価
-- 判断: Trusted External Approval がない中央 `ask` は Codex deny に変換する。
-- Upgrade Path: Codex が必要な PreToolUse `ask` contract を安定して提供したら native `ask` へ切り替える。
+- 状態: 暫定 / ベンダー更新時に再評価
+- 判断: 信頼された外部承認がない中央方針の `ask` はCodexでは拒否へ変換する。
+- 更新方針: Codexが必要なPreToolUseの承認要求契約を安定して提供した場合、ネイティブな `ask` へ切り替える。
 
-## DL-005 — Claude Code は native PreToolUse `ask`
+## DL-005 — Claude CodeはPreToolUseのネイティブ承認要求を使用
 
-- Status: Accepted / Vendor Update 時に再評価
-- 判断: 中央 allow / ask / deny を Claude Code の PreToolUse Decision へ対応付ける。
+- 状態: 採用 / ベンダー更新時に再評価
+- 判断: 中央方針の許可・承認要求・拒否を、Claude CodeのPreToolUse判定へ対応付ける。
 
-## DL-006 — Devin の中央 `ask` は fail-closed
+## DL-006 — Devinの中央 `ask` は安全側に倒す
 
-- Status: Temporary / Vendor Update 時に再評価
-- 判断: External Approval がない中央 `ask` は block。Devin Native Permissions は別 Layer とする。
+- 状態: 暫定 / ベンダー更新時に再評価
+- 判断: 外部承認がない中央方針の `ask` は停止扱いとする。Devin固有の権限機構は別の防御層として扱う。
 
-## DL-007 — Active Worktree を動的解決
+## DL-007 — 現在のワークツリーを動的に解決
 
-- Status: Superseded by DL-015
-- 過去の判断: Absolute Checkout Path を埋め込まず `git rev-parse --show-toplevel` で Repository Root を解決する。
-- Superseded 理由: Agent-mutable Worktree から Policy / Assurance Code を実行すると Trusted Harness Boundary に違反する。Production Hook Execution は `AGENT_HARNESS_TRUSTED_ROOT` から解決し、Repository / Worktree Discovery は Posture / SCM Validation の Runtime Input としてのみ扱う。
+- 状態: DL-015により廃止
+- 過去の判断: 絶対パスを埋め込まず、`git rev-parse --show-toplevel` でリポジトリルートを解決する。
+- 廃止理由: エージェントが変更可能なワークツリーから方針・保証コードを実行すると、信頼されたハーネス境界に違反する。本番環境のフック実行は `AGENT_HARNESS_TRUSTED_ROOT` から解決し、リポジトリ / ワークツリーの検出結果は、保護状態検査やSCM検証に使う実行時入力としてのみ扱う。
 
-## DL-008 — Harness / Config は Security-sensitive
+## DL-008 — ハーネスと設定ファイルはセキュリティ上重要
 
-- Status: Accepted
-- 判断: `.agent-harness/`、Vendor Hook Config、CI Workflow、Harness、Posture、Policy の変更は Approval-class とする。
+- 状態: 採用
+- 判断: `.agent-harness/`、ベンダー用フック設定、CIワークフロー、ハーネス、保護状態検査、方針コードの変更は承認要求対象とする。
 
-## DL-009 — Stop Hook は Deterministic Completion Gate を利用
+## DL-009 — Stopフックは決定的な完了判定を使う
 
-- Status: Accepted
-- 判断: Stop Hook で deterministic check を実行し、Retry / Time / Tool / Cost Circuit Breaker は External Orchestrator にも持たせる。
+- 状態: 採用
+- 判断: Stopフックでは決定的な完了判定を実行し、再試行回数、時間、ツール呼び出し数、費用の上限は外部オーケストレーター側にも持たせる。
 
-## DL-010 — Hook は Defense in Depth、最終 Authority ではない
+## DL-010 — フックは多層防御であり最終権威ではない
 
-- Status: Accepted
-- 判断: Protected Branch、Credential、Production、Host / Network Boundary は Sandbox、Workload Isolation、IAM / SCM、Server-side Rule でも独立して保護する。
+- 状態: 採用
+- 判断: 保護ブランチ、認証情報、本番環境、ホストやネットワークの境界は、サンドボックス、ワークロード隔離、IAM / SCM、サーバー側規則でも独立して保護する。
 
-## DL-011 — Sandbox-first Credential Exposure Reduction
+## DL-011 — サンドボックス優先の認証情報露出低減
 
 詳細: [DL-011](decisions/DL-011-sandbox-first-credential-isolation.md)
 
-- Status: Accepted / Vendor Update 時に再評価
-- 判断: Sandbox / Local Policy で Credential Exposure を低減するが、Credential Compromise 自体は起こり得る Failure Mode とする。Default は **1 Pod / 1 Agent Container**。Credential を隠すだけのために SCM Broker / Sidecar は追加しない。
-- Security Invariant: Credential Compromise が unrestricted Repository / Organization Authority を意味してはいけない。
-- Containment: Short-lived / Repository-scoped Credential、Least-privilege GitHub App / IAM、Server-side Ruleset、Audit / Revoke。
+- 状態: 採用 / ベンダー更新時に再評価
+- 判断: サンドボックスとローカル方針で認証情報の露出を減らすが、認証情報の侵害自体は起こり得る故障形態とする。標準構成は **1 Pod / 1エージェントコンテナ** とし、認証情報を隠すことだけを目的にSCM仲介サービスやサイドカーを追加しない。
+- セキュリティ不変条件: 認証情報の侵害が、無制限のリポジトリ権限や組織権限を意味してはならない。
+- 封じ込め: 短寿命・リポジトリ限定の認証情報、最小権限のGitHub App / IAM、サーバー側ルールセット、監査、失効。
 
-## DL-012 — SessionStart で Repository Security Posture を検証
+## DL-012 — SessionStartでリポジトリ保護状態を検査
 
 詳細: [DL-012](decisions/DL-012-sessionstart-repository-posture.md)
 
-- Status: Accepted / Vendor Update 時に再評価
-- 判断: SessionStart で Posture を検証して `READY` / `RESTRICTED` / `BLOCKED` を cache し、Remote SCM Mutation 前に stale なら再検証する。
-- Trusted Identity: `AGENT_HARNESS_EXPECTED_REPOSITORY` は Trusted Launcher が設定する。未設定は `UNKNOWN`、不一致は `BLOCKED`。
-- Minimum Posture: Repository-local `mode` は `AGENT_HARNESS_MINIMUM_POSTURE_MODE` を弱められない。Default minimum は `restricted`。
-- Missing Config: built-in `restricted` default。
-- Invalid Explicit Config: `BLOCKED`。
-- External State Unknown: `UNKNOWN` を保持し、Effective Mode により block / restrict / warn を決定する。
-- Enforcement: SessionStart は検出 / fail-fast、PreToolUse は実行制御、GitHub Ruleset / IAM は authoritative enforcement。
+- 状態: 採用 / ベンダー更新時に再評価
+- 判断: SessionStartでリポジトリ保護状態を検査し、`READY` / `RESTRICTED` / `BLOCKED` をセッション単位で保持する。遠隔SCM変更前に情報が古ければ再検査する。
+- 信頼された識別情報: `AGENT_HARNESS_EXPECTED_REPOSITORY` は信頼された起動処理が設定する。未設定は `UNKNOWN`、不一致は `BLOCKED`。
+- 最小保護状態: リポジトリ内の `mode` は `AGENT_HARNESS_MINIMUM_POSTURE_MODE` を弱められない。標準の最小値は `restricted`。
+- 設定なし: 組み込みの `restricted` 標準値を使う。
+- 明示設定が不正: `BLOCKED`。
+- 外部状態が不明: `UNKNOWN` を保持し、有効な運用方式に応じて停止・制限・警告を決定する。
+- 強制の分担: SessionStartは早期検出、PreToolUseは観測可能な操作の実行制御、GitHubのルールセットとIAMは権威的な強制を担う。
 
-## DL-013 — Canonical SCM Publication Command
+## DL-013 — 正規形のSCM公開コマンド
 
 詳細: [DL-013](decisions/DL-013-canonical-scm-publication.md)
 
-- Status: Accepted / Vendor Update 時に再評価
-- 判断: Agent が直接発行する Autonomous Git Publish は `git push` と `git push --set-upstream origin HEAD` の2形式だけを許可し、その後に Repository / Branch / Upstream を Semantic Validation する。
-- Compound Shell: 先頭が read-only command でも `&&` / Pipe / Redirection 等を含む Command は Autonomous Allowlist 外。
-- PR Creation: Direct `gh pr create` で Repository / Head / Base の override を禁止する。
-- Scope: これは Hook Boundary で観測可能な Agent-issued Action の Semantic Contract であり、Arbitrary Nested Process Effect の Complete Mediation ではない。DL-016 を参照。
-- 理由: Arbitrary Shell / Refspec を安全に解釈する複雑さを持ち込まず、必要な Publish Path だけを狭く定義する。
+- 状態: 採用 / ベンダー更新時に再評価
+- 判断: エージェントが直接発行する自律的なGit公開は `git push` と `git push --set-upstream origin HEAD` の2形式だけを許可し、その後にリポジトリ、ブランチ、上流ブランチを意味論的に検証する。
+- 複合シェル: 先頭が読み取り専用コマンドでも、`&&`、パイプ、リダイレクト等を含むコマンドは自律許可対象外とする。
+- プルリクエスト作成: 直接の `gh pr create` では、リポジトリ、作業元ブランチ、基準ブランチの上書きを禁止する。
+- 適用範囲: これはフック境界で観測可能な、エージェントが直接発行した操作の意味論的契約であり、任意の子プロセスの副作用に対する完全仲介ではない。DL-016を参照する。
+- 理由: 任意のシェル構文やGit参照指定を安全に解釈する複雑さを持ち込まず、必要な公開経路だけを狭く定義する。
 
-## DL-015 — Trusted Harness Boundary
+## DL-015 — 信頼されたハーネス境界
 
 詳細: [DL-015](decisions/DL-015-trusted-harness-boundary.md)
 
-- Status: Accepted / Vendor・Runtime Update 時に再評価
-- 判断: Production の Policy / Posture / SCM Semantic Validation / Completion Code は Agent-mutable Workspace の外に Provision された `AGENT_HARNESS_TRUSTED_ROOT` から実行する。
-- Baseline: 承認済み Harness Snapshot を `/opt/agent-harness` に Bake し、Container の Read-only Root Filesystem 上に置く。`/workspace` は Mutable のまま維持する。
-- Policy Source: Trusted Wrapper は Semantic Policy と Repository Posture Policy を Trusted Root 側へ固定し、Repository-controlled File を Production Normative Policy にしない。
-- Hook Registration: Project-local Hook File は Reference / Development Wiring。Vendor が対応する場合、Production Registration は Trusted Launcher / Managed Configuration から Provision する。
-- RAEM Invariant: 独立した Authority Boundary として使う Assurance / Policy Mechanism は、評価対象自身が変更できる Implementation に依存してはならない。
+- 状態: 採用 / ベンダーまたは実行環境の変更時に再評価
+- 判断: 本番環境の方針、保護状態検査、SCM意味論検証、完了判定コードは、エージェント可変ワークスペースの外に配置された `AGENT_HARNESS_TRUSTED_ROOT` から実行する。
+- 基準構成: 承認済みハーネス一式を `/opt/agent-harness` に組み込み、コンテナの読み取り専用ルートファイルシステム上に置く。`/workspace` は可変のまま維持する。
+- 方針の出所: 信頼されたラッパーは意味論的方針とリポジトリ保護状態の方針を信頼ルート側へ固定し、リポジトリ管理下のファイルを本番環境の規範的方針にしない。
+- フック登録: プロジェクト内フックファイルは参照・開発用の接続とする。ベンダーが対応する場合、本番環境の登録は信頼された起動処理または管理設定から配置する。
+- RAEM上の不変条件: 独立した権限境界として使う保証機構や方針機構は、評価対象自身が変更できる実装に依存してはならない。
 
-## DL-016 — Semantic Policy は Complete Mediation ではない
+## DL-016 — 意味論的方針は完全仲介ではない
 
 詳細: [DL-016](decisions/DL-016-semantic-policy-is-not-complete-mediation.md)
 
-- Status: Accepted / Vendor・Runtime Update 時に再評価
-- 判断: Policy / Hook が統治するのは Hook Boundary で観測可能な Agent-issued Action であり、Allowed Command が内部で起動する Arbitrary Nested Process / Side Effect の Complete Mediation は主張しない。
-- Direct-action Claim: Harness が許可する Direct SCM Publication は Canonical Publication Contract に従う。
-- External-authority Invariant: Nested Code が Local Semantic Policy を Bypass しても、Critical Repository Authority は Least-privilege IAM / SCM Credential と Authoritative GitHub-side Rule で制約される。
-- RAEM 理由: Assurance Mechanism が実際に観測する Evidence より強い Property を主張しない。
+- 状態: 採用 / ベンダーまたは実行環境の変更時に再評価
+- 判断: 方針とフックが統治するのは、フック境界で観測可能なエージェント直接操作であり、許可済みコマンドが内部で起動する任意の子プロセスや副作用まで完全仲介するとは主張しない。
+- 直接操作の主張: ハーネスが許可する直接のSCM公開操作は正規公開契約に従う。
+- 外部権限の不変条件: 子プロセスがローカルの意味論的方針を迂回しても、重要なリポジトリ権限は最小権限のIAM / SCM認証情報と権威的なGitHub側規則によって制約される。
+- RAEM上の理由: 保証機構が実際に観測できる根拠より強い性質を主張しない。
 
-## Maintenance Rule
+## 保守規則
 
-Architecture Alternative の選択、Vendor Limitation の Workaround、Trust Boundary / Failure Mode / Approval Path / Security Invariant の変更、将来 Upgrade で簡略化できる判断を行った場合は Decision Log を更新します。Temporary Decision には Upgrade Path / 再評価条件を残し、過去判断を黙って削除しません。
+設計上の選択肢を決定した場合、ベンダー制約に対する回避策を導入した場合、信頼境界・故障形態・承認経路・セキュリティ不変条件を変更した場合、または将来の更新で単純化できる可能性がある判断を行った場合は、この判断記録を更新する。
+
+暫定判断には更新方針または再評価条件を残す。過去の判断を黙って削除せず、廃止された判断は履歴として残す。
