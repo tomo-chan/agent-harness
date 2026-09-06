@@ -117,6 +117,16 @@ Detailed record: [DL-016](decisions/DL-016-semantic-policy-is-not-complete-media
 - External-authority invariant: even if local semantic policy is bypassed by nested code, critical repository authority remains bounded by least-privilege IAM/SCM credentials and authoritative GitHub-side rules.
 - RAEM rationale: do not let an assurance mechanism claim a property stronger than the evidence it actually observes.
 
+## DL-017 — Authority state precedes approval
+
+Detailed record: [DL-017](decisions/DL-017-authority-state-precedes-approval.md).
+
+- Status: Accepted
+- Decision: Repository posture is an authority state and is evaluated before ordinary allow/ask handling for mutating operations.
+- `BLOCKED`: mutation is denied regardless of native approval prompts or external approval of an ordinary policy rule.
+- `RESTRICTED`: local development remains available, but remote SCM mutation stays denied until posture is remediated.
+- RAEM invariant: an authority state that declares mutation prohibited must not be weakened by a lower-level approval mechanism.
+
 ## Maintenance rule
 
 Add or update a decision when a change selects an architecture alternative, compensates for a vendor limitation, changes a trust boundary/failure/approval/security invariant, or is likely to be simplified by future vendor/platform improvements. Preserve history and record upgrade/revisit triggers for temporary decisions.
