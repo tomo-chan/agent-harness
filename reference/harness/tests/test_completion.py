@@ -15,6 +15,7 @@ def _raw(tmp_path: Path) -> dict:
 def _report(state: str = "READY", default_branch: str = "main") -> SimpleNamespace:
     return SimpleNamespace(
         state=state,
+        repository="acme/widget",
         default_branch=default_branch,
         summary=lambda: f"repository posture {state}",
     )
@@ -33,11 +34,11 @@ def test_clean_checked_default_branch_skips_delivery_gate(tmp_path: Path, monkey
             ("branch", "--show-current"): ("main", None),
             ("status", "--porcelain=v1", "--untracked-files=all"): ("", None),
             ("rev-parse", "HEAD"): ("abc", None),
-            ("rev-parse", "origin/main"): ("abc", None),
         }
         return values[tuple(args)]
 
     monkeypatch.setattr(completion, "_run_git", fake_git)
+    monkeypatch.setattr(completion, "_github_branch_head", lambda _cwd, repo, branch: ("abc", None))
     monkeypatch.setattr(completion, "_run_completion_gate", lambda _cwd: pytest.fail("gate must not run"))
 
     ok, reason = completion.completion_check(_raw(tmp_path))
@@ -85,16 +86,58 @@ def test_diverged_default_branch_runs_delivery_gate(tmp_path: Path, monkeypatch)
             ("branch", "--show-current"): ("main", None),
             ("status", "--porcelain=v1", "--untracked-files=all"): ("", None),
             ("rev-parse", "HEAD"): ("local", None),
-            ("rev-parse", "origin/main"): ("remote", None),
         }
         return values[tuple(args)]
 
     monkeypatch.setattr(completion, "_run_git", fake_git)
+    monkeypatch.setattr(completion, "_github_branch_head", lambda _cwd, repo, branch: ("remote", None))
     monkeypatch.setattr(completion, "_run_completion_gate", lambda _cwd: (False, "diverged delivery"))
 
     ok, reason = completion.completion_check(_raw(tmp_path))
     assert ok is False
     assert reason == "diverged delivery"
+
+
+def test_mutated_local_remote_tracking_ref_is_not_completion_authority(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(completion, "check_repository_posture", lambda _cwd: _report())
+
+    def fake_git(_cwd: Path, args):
+        values = {
+            ("branch", "--show-current"): ("main", None),
+            ("status", "--porcelain=v1", "--untracked-files=all"): ("", None),
+            ("rev-parse", "HEAD"): ("forged", None),
+        }
+        if tuple(args) == ("rev-parse", "origin/main"):
+            pytest.fail("local remote-tracking ref must not be used as authority")
+        return values[tuple(args)]
+
+    monkeypatch.setattr(completion, "_run_git", fake_git)
+    monkeypatch.setattr(completion, "_github_branch_head", lambda _cwd, repo, branch: ("actual-github", None))
+    monkeypatch.setattr(completion, "_run_completion_gate", lambda _cwd: (False, "full gate required"))
+
+    ok, reason = completion.completion_check(_raw(tmp_path))
+    assert ok is False
+    assert reason == "full gate required"
+
+
+def test_unavailable_github_branch_head_never_skips_delivery_gate(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(completion, "check_repository_posture", lambda _cwd: _report())
+
+    def fake_git(_cwd: Path, args):
+        values = {
+            ("branch", "--show-current"): ("main", None),
+            ("status", "--porcelain=v1", "--untracked-files=all"): ("", None),
+            ("rev-parse", "HEAD"): ("abc", None),
+        }
+        return values[tuple(args)]
+
+    monkeypatch.setattr(completion, "_run_git", fake_git)
+    monkeypatch.setattr(completion, "_github_branch_head", lambda _cwd, repo, branch: (None, "GitHub unavailable"))
+    monkeypatch.setattr(completion, "_run_completion_gate", lambda _cwd: (False, "full gate required"))
+
+    ok, reason = completion.completion_check(_raw(tmp_path))
+    assert ok is False
+    assert reason == "full gate required"
 
 
 def test_unverifiable_posture_never_skips_delivery_gate(tmp_path: Path, monkeypatch) -> None:
