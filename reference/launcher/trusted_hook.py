@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+"""Launch vendor hook adapters from the trusted harness installation.
+
+This module is part of the production trust boundary. It validates that the
+configured harness root matches the installation containing this file, resolves
+policy and adapter paths only inside that root, and then replaces the current
+process with the selected vendor adapter.
+"""
+
 from __future__ import annotations
 
 import os
@@ -9,6 +17,7 @@ SUPPORTED_VENDORS = {"claude", "codex", "devin"}
 
 
 def _inside(root: Path, path: Path) -> bool:
+    """Return whether ``path`` resolves inside the trusted ``root`` directory."""
     try:
         path.relative_to(root)
         return True
@@ -17,6 +26,19 @@ def _inside(root: Path, path: Path) -> bool:
 
 
 def _trusted_path(root: Path, env_name: str, default: Path) -> Path:
+    """Resolve a trusted file path and reject paths outside the trusted root.
+
+    Args:
+        root: Trusted harness root established by the launcher.
+        env_name: Optional environment variable that overrides ``default``.
+        default: Default file path inside ``root``.
+
+    Returns:
+        The resolved existing file path.
+
+    Raises:
+        RuntimeError: If the path escapes ``root`` or does not name a file.
+    """
     value = os.environ.get(env_name)
     path = Path(value).expanduser().resolve() if value else default.resolve()
     if not _inside(root, path):
@@ -27,6 +49,12 @@ def _trusted_path(root: Path, env_name: str, default: Path) -> Path:
 
 
 def main() -> int:
+    """Validate trusted launcher state and execute the selected vendor adapter.
+
+    The function fails closed when trusted-root identity or trusted files cannot
+    be established. On success, ``os.execv`` replaces this process and therefore
+    does not normally return.
+    """
     if len(sys.argv) != 2 or sys.argv[1] not in SUPPORTED_VENDORS:
         print("usage: trusted_hook.py <claude|codex|devin>", file=sys.stderr)
         return 2
