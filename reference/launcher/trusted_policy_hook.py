@@ -55,16 +55,17 @@ def main() -> int:
             "AGENT_HARNESS_TRUSTED_POLICY",
             trusted_root / "reference" / "policies" / "policy.example.json",
         )
-        adapter = _trusted_file(
-            trusted_root,
-            "AGENT_HARNESS_TRUSTED_ADAPTER",
-            trusted_root / "reference" / "hooks" / "pre_tool_use_adapter.py",
-        )
+        adapter = (
+            trusted_root / "reference" / "hooks" / "pre_tool_use_adapter.py"
+        ).resolve()
+        if not _inside(trusted_root, adapter) or not adapter.is_file():
+            raise RuntimeError(f"trusted adapter does not exist inside trusted root: {adapter}")
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2
 
     os.environ["AGENT_HARNESS_POLICY"] = str(policy)
+    os.environ.pop("AGENT_POLICY", None)
     os.execv(sys.executable, [sys.executable, str(adapter)])
     return 127
 
