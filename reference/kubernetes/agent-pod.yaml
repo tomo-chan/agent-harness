@@ -19,7 +19,7 @@ spec:
           value: /opt/agent-harness
         - name: AGENT_HARNESS_POLICY
           value: /opt/agent-harness/reference/policies/policy.example.json
-        - name: AGENT_HARNESS_REPOSITORY_SECURITY_POLICY
+        - name: AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY
           value: /opt/agent-harness/reference/policies/repository-security.example.json
         - name: PYTHONDONTWRITEBYTECODE
           value: "1"
@@ -55,6 +55,7 @@ spec:
 # - replace the placeholder image and pin it by digest;
 # - bake the approved harness snapshot into /opt/agent-harness in the image; do not populate that path from /workspace;
 # - keep /opt/agent-harness on the read-only root filesystem so agent-controlled Git operations cannot replace policy/posture/hook code;
+# - treat AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY as the minimum posture baseline; repository-local .agent-harness/security.json may only strengthen it;
 # - provision vendor hook registration from trusted launcher/managed configuration where the vendor supports it; project-local hook files are reference wiring, not an independent authority boundary;
 # - use workload identity only when cloud access is required;
 # - do not mount Docker/container-runtime sockets or hostPath volumes;
