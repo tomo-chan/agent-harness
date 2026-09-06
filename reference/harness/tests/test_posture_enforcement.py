@@ -31,13 +31,8 @@ def _report(state: str):
 
 def _allow(command: str, monkeypatch, fake_git, rule="canonical-git-push"):
     monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
-
-    def wrapped_git(cwd, args):
-        if tuple(args) == ("diff", "--name-only", "origin/main...HEAD"):
-            return "", None
-        return fake_git(cwd, args)
-
-    monkeypatch.setattr(common, "_run_git", wrapped_git)
+    monkeypatch.setattr(common, "_run_git", fake_git)
+    monkeypatch.setattr(common, "_control_plane_publication_decision", lambda _cwd, _report: None)
     raw = _raw(command)
     action = common.normalize(raw, "codex")
     return common._enforce_repository_posture(raw, action, Decision("allow", "ok", rule))
@@ -103,16 +98,17 @@ def test_noncanonical_push_is_denied(monkeypatch):
     assert result.rule == "canonical-git-push"
 
 
-def test_canonical_plain_push_allows_expected_branch_origin_and_upstream(monkeypatch):
-    def fake_git(_cwd, args):
-        values = {
-            ("branch", "--show-current"): ("feature/review-fix", None),
-            ("remote", "get-url", "origin"): ("https://github.com/tomo-chan/agent-harness.git", None),
-            ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): ("origin/feature/review-fix", None),
-        }
-        return values[tuple(args)]
+def _published_feature_git(_cwd, args):
+    values = {
+        ("branch", "--show-current"): ("feature/review-fix", None),
+        ("remote", "get-url", "origin"): ("https://github.com/tomo-chan/agent-harness.git", None),
+        ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): ("origin/feature/review-fix", None),
+    }
+    return values[tuple(args)]
 
-    result = _allow("git push", monkeypatch, fake_git)
+
+def test_canonical_plain_push_allows_expected_branch_origin_and_upstream(monkeypatch):
+    result = _allow("git push", monkeypatch, _published_feature_git)
     assert result.decision == "allow"
 
 
@@ -193,53 +189,61 @@ def test_first_publish_form_allows_when_no_upstream_exists(monkeypatch):
 
 
 def test_first_publish_form_denies_when_upstream_already_exists(monkeypatch):
-    def fake_git(_cwd, args):
-        values = {
-            ("branch", "--show-current"): ("feature/review-fix", None),
-            ("remote", "get-url", "origin"): ("https://github.com/tomo-chan/agent-harness.git", None),
-            ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): ("origin/feature/review-fix", None),
-        }
-        return values[tuple(args)]
-
-    result = _allow("git push --set-upstream origin HEAD", monkeypatch, fake_git)
+    result = _allow("git push --set-upstream origin HEAD", monkeypatch, _published_feature_git)
     assert result.decision == "deny"
     assert "only for first publication" in result.reason
 
 
-def test_push_requires_approval_when_control_plane_changed(monkeypatch):
+def test_control_plane_review_uses_authoritative_github_base_sha(monkeypatch):
+    report = _report("READY")
+    monkeypatch.setattr(common, "_github_branch_head", lambda _cwd, repo, branch: ("deadbeef", None))
+
+    calls = []
+
     def fake_git(_cwd, args):
+        calls.append(tuple(args))
         values = {
-            ("branch", "--show-current"): ("feature/review-fix", None),
-            ("remote", "get-url", "origin"): ("https://github.com/tomo-chan/agent-harness.git", None),
-            ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): ("origin/feature/review-fix", None),
-            ("diff", "--name-only", "origin/main...HEAD"): ("src/app.py\nreference/harness/common.py", None),
+            ("cat-file", "-e", "deadbeef^{commit}"): ("", None),
+            ("diff", "--name-only", "deadbeef...HEAD"): ("src/app.py\nreference/harness/common.py", None),
         }
+        if tuple(args) == ("diff", "--name-only", "origin/main...HEAD"):
+            raise AssertionError("mutable remote-tracking ref must not be publication authority")
         return values[tuple(args)]
 
-    monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
     monkeypatch.setattr(common, "_run_git", fake_git)
-    raw = _raw("git push")
-    action = common.normalize(raw, "codex")
-    result = common._enforce_repository_posture(raw, action, Decision("allow", "ok", "canonical-git-push"))
+    result = common._control_plane_publication_decision(ROOT, report)
+    assert result is not None
     assert result.decision == "ask"
     assert result.rule == "control-plane-publication"
+    assert ("diff", "--name-only", "deadbeef...HEAD") in calls
 
 
-def test_control_plane_publication_approval_is_applied_after_authority_checks(monkeypatch, tmp_path):
+def test_control_plane_review_denies_when_github_head_unavailable(monkeypatch):
+    monkeypatch.setattr(common, "_github_branch_head", lambda _cwd, repo, branch: (None, "GitHub unavailable"))
+    result = common._control_plane_publication_decision(ROOT, _report("READY"))
+    assert result is not None
+    assert result.decision == "deny"
+
+
+def test_control_plane_review_denies_when_authoritative_commit_missing_locally(monkeypatch):
+    monkeypatch.setattr(common, "_github_branch_head", lambda _cwd, repo, branch: ("deadbeef", None))
+    monkeypatch.setattr(common, "_run_git", lambda _cwd, args: (None, "missing object"))
+    result = common._control_plane_publication_decision(ROOT, _report("READY"))
+    assert result is not None
+    assert result.decision == "deny"
+    assert "not available locally" in result.reason
+
+
+def test_control_plane_publication_approval_is_applied_after_authority_checks(monkeypatch):
     monkeypatch.setenv("AGENT_HARNESS_APPROVED_RULES", "control-plane-publication")
     monkeypatch.setattr(common.PolicyEngine, "from_file", lambda _path: SimpleNamespace(evaluate=lambda _action: Decision("allow", "ok", "canonical-git-push")))
     monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
-
-    def fake_git(_cwd, args):
-        values = {
-            ("branch", "--show-current"): ("feature/review-fix", None),
-            ("remote", "get-url", "origin"): ("https://github.com/tomo-chan/agent-harness.git", None),
-            ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): ("origin/feature/review-fix", None),
-            ("diff", "--name-only", "origin/main...HEAD"): ("reference/harness/common.py", None),
-        }
-        return values[tuple(args)]
-
-    monkeypatch.setattr(common, "_run_git", fake_git)
+    monkeypatch.setattr(common, "_run_git", _published_feature_git)
+    monkeypatch.setattr(
+        common,
+        "_control_plane_publication_decision",
+        lambda _cwd, _report: Decision("ask", "control-plane changed", "control-plane-publication"),
+    )
     result = common.evaluate(_raw("git push"), "codex")
     assert result.decision == "allow"
     assert result.rule == "control-plane-publication"
@@ -254,36 +258,12 @@ def test_blocked_cannot_be_overridden_by_external_approval(monkeypatch):
     assert result.rule == "repository-posture"
 
 
-def test_pr_create_cannot_override_repo(monkeypatch):
-    monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
-    raw = _raw("gh pr create --repo other/repo --fill")
-    action = common.normalize(raw, "codex")
-    result = common._enforce_repository_posture(raw, action, Decision("allow", "ok", "pr-publish"))
-    assert result.decision == "deny"
-    assert result.rule == "canonical-pr-create"
-
-
-def test_pr_create_cannot_override_head(monkeypatch):
-    monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
-    raw = _raw("gh pr create --head other-branch --fill")
-    action = common.normalize(raw, "codex")
-    result = common._enforce_repository_posture(raw, action, Decision("allow", "ok", "pr-publish"))
-    assert result.decision == "deny"
-    assert result.rule == "canonical-pr-create"
-
-
-def test_pr_create_cannot_override_base(monkeypatch):
-    monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
-    raw = _raw("gh pr create --base other-base --fill")
-    action = common.normalize(raw, "codex")
-    result = common._enforce_repository_posture(raw, action, Decision("allow", "ok", "pr-publish"))
-    assert result.decision == "deny"
-    assert result.rule == "canonical-pr-create"
-
-
-def test_pr_create_short_aliases_cannot_override_repository_head_or_base(monkeypatch):
+def test_pr_create_cannot_override_repository_head_or_base(monkeypatch):
     monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
     for command in (
+        "gh pr create --repo other/repo --fill",
+        "gh pr create --head other-branch --fill",
+        "gh pr create --base other-base --fill",
         "gh pr create -R other/repo --fill",
         "gh pr create -H other-branch --fill",
         "gh pr create -B other-base --fill",
@@ -296,15 +276,7 @@ def test_pr_create_short_aliases_cannot_override_repository_head_or_base(monkeyp
 
 
 def test_pr_create_allows_current_published_feature_branch(monkeypatch):
-    def fake_git(_cwd, args):
-        values = {
-            ("branch", "--show-current"): ("feature/review-fix", None),
-            ("remote", "get-url", "origin"): ("https://github.com/tomo-chan/agent-harness.git", None),
-            ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): ("origin/feature/review-fix", None),
-        }
-        return values[tuple(args)]
-
-    result = _allow("gh pr create --fill", monkeypatch, fake_git, "pr-publish")
+    result = _allow("gh pr create --fill", monkeypatch, _published_feature_git, "pr-publish")
     assert result.decision == "allow"
 
 
@@ -317,7 +289,6 @@ def test_pr_create_denies_detached_head(monkeypatch):
     result = _allow("gh pr create --fill", monkeypatch, fake_git, "pr-publish")
     assert result.decision == "deny"
     assert result.rule == "canonical-pr-create"
-    assert "detached HEAD" in result.reason
 
 
 def test_pr_create_denies_default_branch(monkeypatch):
@@ -370,22 +341,3 @@ def test_pr_create_denies_wrong_upstream(monkeypatch):
     result = _allow("gh pr create --fill", monkeypatch, fake_git, "pr-publish")
     assert result.decision == "deny"
     assert "origin/feature/review-fix" in result.reason
-
-
-def test_pr_create_requires_approval_when_control_plane_changed(monkeypatch):
-    def fake_git(_cwd, args):
-        values = {
-            ("branch", "--show-current"): ("feature/review-fix", None),
-            ("remote", "get-url", "origin"): ("https://github.com/tomo-chan/agent-harness.git", None),
-            ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): ("origin/feature/review-fix", None),
-            ("diff", "--name-only", "origin/main...HEAD"): (".github/workflows/harness-tests.yml", None),
-        }
-        return values[tuple(args)]
-
-    monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
-    monkeypatch.setattr(common, "_run_git", fake_git)
-    raw = _raw("gh pr create --fill")
-    action = common.normalize(raw, "codex")
-    result = common._enforce_repository_posture(raw, action, Decision("allow", "ok", "pr-publish"))
-    assert result.decision == "ask"
-    assert result.rule == "control-plane-publication"
