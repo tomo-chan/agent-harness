@@ -6,8 +6,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from policy_engine import PolicyEngine, PolicyError
+
+from policy_engine import Decision, PolicyEngine, PolicyError
+from reference.hooks import pre_tool_use_adapter
 
 POLICY = Path(__file__).resolve().parents[2] / "policies" / "policy.example.json"
 ADAPTER = Path(__file__).resolve().parents[1] / "pre_tool_use_adapter.py"
@@ -74,3 +78,38 @@ def test_adapter_denies_when_trusted_policy_is_missing() -> None:
     decision = json.loads(result.stdout)
     assert decision["decision"] == "deny"
     assert decision["rule"] == "policy-error"
+
+
+def test_adapter_applies_repository_authority_after_policy(
+    monkeypatch,
+) -> None:
+    """The real S2 hook path must apply authority, not merely expose a helper."""
+    monkeypatch.setenv("AGENT_HARNESS_POLICY", str(POLICY))
+    observed: dict[str, object] = {}
+
+    def fake_authority(raw, result, *, mutation, restricted_operation=False):
+        observed["raw"] = raw
+        observed["policy_decision"] = result.decision
+        observed["mutation"] = mutation
+        observed["restricted_operation"] = restricted_operation
+        return Decision("deny", "blocked by repository authority", "repository-authority")
+
+    monkeypatch.setattr(
+        pre_tool_use_adapter,
+        "enforce_repository_authority",
+        fake_authority,
+    )
+    raw = {
+        "tool": "exec",
+        "input": {"command": "some-new-tool --mutate"},
+        "cwd": str(ROOT),
+        "session_id": "adapter-authority-test",
+    }
+
+    result = pre_tool_use_adapter.evaluate(raw)
+
+    assert result.decision == "deny"
+    assert result.rule == "repository-authority"
+    assert observed["policy_decision"] == "ask"
+    assert observed["mutation"] is True
+    assert observed["restricted_operation"] is False
