@@ -2,7 +2,7 @@
 
 # Vendor Harness Implementations
 
-The repository contains reference hook wiring for Claude Code, OpenAI Codex, and Devin CLI. All three use the same deny-first Policy Engine, repository posture checker, SCM semantic validator, publication-time control-plane review, and session-aware deterministic completion assurance. In production, executable assurance/policy code and trusted baseline policy are resolved from a trusted root outside the agent-mutable workspace.
+The repository contains reference hook wiring for Claude Code, OpenAI Codex, and Devin CLI. All three use the same deny-first Policy Engine, repository posture checker, SCM semantic validator, publication-time control-plane review, and deterministic completion assurance. In production, executable assurance/policy code and trusted baseline policy are resolved from a trusted root outside the agent-mutable workspace.
 
 ## Trusted harness boundary
 
@@ -46,7 +46,7 @@ ttl_effective         = min(trusted, repository)
 
 The repository can therefore add requirements or choose a stricter mode, but cannot remove trusted requirements or lengthen the trusted TTL. Repository-local `expected_repository` is only an additional consistency claim; trusted task identity remains `AGENT_HARNESS_EXPECTED_REPOSITORY`. Malformed trusted or repository policy fails closed to `BLOCKED`.
 
-At SessionStart, the checker compares `origin` with trusted expected repository, reads repository metadata, queries effective active GitHub rules on the default branch, normalizes evidence to `pass`, `fail`, or `unknown`, and derives `READY`, `RESTRICTED`, or `BLOCKED`. Cached posture is refreshed on TTL expiry or repository-root change.
+At SessionStart, the checker compares `origin` with trusted expected repository, reads repository metadata, queries effective active GitHub rules on the default branch, normalizes evidence to `pass`, `fail`, or `unknown`, and derives `READY`, `RESTRICTED`, or `BLOCKED`. The resulting session cache is context/performance state only. Mutation enforcement re-evaluates posture from current Git and GitHub evidence rather than trusting that writable cache as authority.
 
 ## Canonical autonomous publication
 
@@ -69,19 +69,17 @@ Edit-time path classification is defense in depth, not the complete review bound
 git diff --name-only origin/<default-branch>...HEAD
 ```
 
-If the committed branch changes protected control-plane paths such as `.agent-harness/`, vendor hook configuration, CI workflows, harness/posture/policy/launcher code, or `AGENTS.md`, the semantic validator returns `ask` with rule `control-plane-publication`. Trusted external approval may authorize that final review result only after repository authority has been satisfied. If the diff cannot be established, validation fails closed.
+If the committed branch changes protected control-plane paths such as `.agent-harness/`, vendor hook configuration, CI workflows, harness/posture/policy/launcher code, assurance scripts, deployment references, or `AGENTS.md`, the semantic validator returns `ask` with rule `control-plane-publication`. Trusted external approval may authorize that final review result only after repository authority has been satisfied. If the diff cannot be established, validation fails closed.
 
 This makes the publication decision independent of whether the change was produced by Write/Edit, `apply_patch`, `git restore`, a repository script, or another local mechanism. Production authority still resides in the trusted read-only harness root. See DL-019.
 
-## Session-aware completion assurance
+## Authoritative-state completion assurance
 
-SessionStart records a deterministic baseline consisting of repository root, `HEAD`, and exact porcelain worktree state including untracked files. Stop compares current state with that baseline:
+SessionStart does not persist an authority-bearing completion snapshot. At Stop, the harness freshly evaluates repository posture and current Git state.
 
-- identical state: treat the session as read-only and do not require feature-branch/upstream delivery predicates;
-- changed state: run the full deterministic delivery completion gate;
-- missing, invalid, or unverifiable baseline: never assume read-only; run the full gate.
+The delivery completion gate is skipped only when the current branch is the checked default branch, the worktree including untracked files is clean, and local `HEAD` exactly equals `origin/<checked-default-branch>`. This is evidence that no local repository delivery is pending. Every feature-branch, dirty, diverged, `BLOCKED`, or otherwise unverifiable state runs the full deterministic delivery gate.
 
-This avoids rejecting review/inspection sessions on the default branch while keeping changed delivery work fail-closed. See DL-020.
+This avoids rejecting clean review/inspection sessions on the default branch without trusting mutable local session evidence. The claim is limited to repository delivery state and does not assert that the session produced no external side effects. See DL-020.
 
 ## Vendor notes
 
@@ -110,7 +108,7 @@ AGENT_HARNESS_EXPECTED_REPOSITORY=owner/repository \
   python reference/launcher/preflight.py --json
 ```
 
-Regression coverage includes trusted-root isolation, monotonic trusted/repository posture composition, trusted launcher mode override, compound-shell remote mutation detection, canonical publication, all force-push variants, control-plane publication review, PR Git-state binding, authority-over-approval precedence, session-aware read-only completion, and required production-code docstrings.
+Regression coverage includes trusted-root isolation, monotonic trusted/repository posture composition, trusted launcher mode override, mutation-time posture re-evaluation, compound-shell remote mutation detection, canonical publication, all force-push variants, control-plane publication review, PR Git-state binding, authority-over-approval precedence, authoritative-state read-only completion, and required production-code docstrings.
 
 ---
 
