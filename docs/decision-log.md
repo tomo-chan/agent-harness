@@ -90,9 +90,10 @@ Detailed record: [DL-012](decisions/DL-012-sessionstart-repository-posture.md).
 Detailed record: [DL-013](decisions/DL-013-canonical-scm-publication.md).
 
 - Status: Accepted; Revisit on vendor change
-- Decision: Autonomous Git publication uses only `git push` and `git push --set-upstream origin HEAD`, followed by semantic repository/branch/upstream validation.
+- Decision: Autonomous direct Git publication uses only `git push` and `git push --set-upstream origin HEAD`, followed by semantic repository/branch/upstream validation.
 - Compound shell: compound syntax is not autonomous even when the first command is read-only.
-- PR creation: `gh pr create` cannot override repository/head/base in the autonomous path.
+- PR creation: direct `gh pr create` cannot override repository/head/base in the autonomous path.
+- Scope: this is a semantic contract for agent-issued actions visible at the hook boundary, not complete mediation of arbitrary nested process effects. See DL-016.
 - Rationale: avoid attempting to safely interpret arbitrary shell/refspec syntax when a narrow structured publication path is sufficient.
 
 ## DL-015 — Trusted harness boundary
@@ -105,6 +106,16 @@ Detailed record: [DL-015](decisions/DL-015-trusted-harness-boundary.md).
 - Policy source: the trusted wrapper pins semantic and repository-posture policy to the trusted root rather than allowing repository-controlled files to become the production normative policy.
 - Hook registration: project-local hook files are reference/development wiring; production should provision registration from trusted launcher/managed configuration where the vendor provides such a mechanism.
 - RAEM invariant: an assurance/policy mechanism used as an independent authority boundary must not depend on implementation controlled by the subject it evaluates.
+
+## DL-016 — Semantic policy is not complete mediation
+
+Detailed record: [DL-016](decisions/DL-016-semantic-policy-is-not-complete-mediation.md).
+
+- Status: Accepted; Revisit on vendor/runtime change
+- Decision: Policy/hooks govern agent-issued actions visible at the hook boundary; they do not claim complete mediation of arbitrary nested processes or side effects launched by an allowed command.
+- Direct-action claim: direct SCM publication accepted by the harness must follow the canonical publication contract.
+- External-authority invariant: even if local semantic policy is bypassed by nested code, critical repository authority remains bounded by least-privilege IAM/SCM credentials and authoritative GitHub-side rules.
+- RAEM rationale: do not let an assurance mechanism claim a property stronger than the evidence it actually observes.
 
 ## Maintenance rule
 
