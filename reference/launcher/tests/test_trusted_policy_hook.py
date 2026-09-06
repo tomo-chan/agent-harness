@@ -62,6 +62,16 @@ def test_trusted_policy_hook_rejects_repository_security_outside_root(
     assert "must resolve inside AGENT_HARNESS_TRUSTED_ROOT" in result.stderr
 
 
+def test_trusted_policy_hook_rejects_invalid_trusted_repository() -> None:
+    """Repository identity crosses S1 only in canonical owner/repository form."""
+    env = os.environ.copy()
+    env["AGENT_HARNESS_TRUSTED_ROOT"] = str(ROOT)
+    env["AGENT_HARNESS_TRUSTED_EXPECTED_REPOSITORY"] = "not a repository"
+    result = _run(env)
+    assert result.returncode != 0
+    assert "must be owner/repository" in result.stderr
+
+
 def test_trusted_policy_hook_does_not_accept_adapter_override() -> None:
     """S1 fixes the generic adapter; vendor or repository input cannot replace it."""
     text = SCRIPT.read_text(encoding="utf-8")
@@ -76,3 +86,11 @@ def test_trusted_policy_hook_sanitizes_untrusted_policy_overrides() -> None:
     assert 'os.environ.pop("AGENT_POLICY", None)' in text
     assert 'os.environ.pop("AGENT_HARNESS_REPOSITORY_SECURITY_POLICY", None)' in text
     assert 'os.environ.pop("AGENT_HARNESS_MINIMUM_POSTURE_MODE", None)' in text
+
+
+def test_trusted_policy_hook_rebinds_expected_repository() -> None:
+    """Only the trusted repository selector may populate the S2 compatibility input."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert 'os.environ.get("AGENT_HARNESS_TRUSTED_EXPECTED_REPOSITORY")' in text
+    assert 'os.environ["AGENT_HARNESS_EXPECTED_REPOSITORY"] = expected_repository' in text
+    assert 'os.environ.pop("AGENT_HARNESS_EXPECTED_REPOSITORY", None)' in text
