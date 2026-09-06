@@ -301,7 +301,32 @@ def test_pr_create_rejects_repo_head_or_base_override(
     assert "may not override" in result.reason
 
 
-def test_compound_shell_is_not_direct_publication_shape() -> None:
+def test_compound_shell_with_push_is_still_classified_as_publication() -> None:
     command = f"git status && {NORMAL_PUSH}"
     assert scm_publication.has_compound_shell(command) is True
-    assert scm_publication.is_scm_publication(_action(command)) is False
+    assert scm_publication.is_scm_publication(_action(command)) is True
+
+
+def test_compound_shell_cannot_be_autonomously_allowed(
+    tmp_path: Path, monkeypatch
+) -> None:
+    command = f"git status && {NORMAL_PUSH}"
+    observed: dict[str, object] = {}
+
+    def fake_authority(raw, result, *, mutation, restricted_operation):
+        observed["restricted_operation"] = restricted_operation
+        return result
+
+    monkeypatch.setattr(
+        scm_publication.authority,
+        "enforce_repository_authority",
+        fake_authority,
+    )
+    result = scm_publication.validate_autonomous_publication(
+        _raw(tmp_path, command),
+        _action(command),
+        Decision("allow", "overbroad lower policy", "allow-git-read"),
+    )
+    assert observed["restricted_operation"] is True
+    assert result.decision == "ask"
+    assert result.rule == "compound-shell"
