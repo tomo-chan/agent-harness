@@ -1,73 +1,75 @@
-# DL-015 — Harness Control Plane を Agent 可変 Workspace から分離する
+# DL-015 — ハーネス制御系をエージェント可変ワークスペースから分離する
 
-- Status: Accepted
-- Date: 2026-09-06
+- 状態: 採用
+- 日付: 2026-09-06
 
-## Context
+## 背景
 
-初期の Reference Wiring では、次のように Active Repository / Worktree 内の Adapter を直接実行していました。
+初期の参照用接続では、次のように現在のリポジトリ / ワークツリー内にあるアダプターを直接実行していた。
 
 ```bash
 python3 "$(git rev-parse --show-toplevel)/reference/harness/claude.py"
 ```
 
-Worktree 移動には便利でしたが、RAEM を用いた Architecture Review により Trust Boundary 上の問題が明確になりました。Policy / Posture / SCM Semantic Validation / Completion Check を実行する実装そのものを、その評価対象である Agent が変更できる構造だったためです。
+ワークツリー移動には便利だったが、RAEMを用いたアーキテクチャレビューにより、信頼境界上の問題が明確になった。方針、リポジトリ保護状態の検査、SCM意味論検証、完了判定を実行する実装そのものを、その評価対象であるエージェントが変更できる構造だったためである。
 
-Policy では Control-plane Path に対する通常の Write / Edit を Approval-class にしていましたが、`git checkout` / `git restore` / `git switch` などの Git 操作では、その Path-aware Tool Rule を経由せず Repository File を置き換えられます。
+方針では制御系のパスに対する通常の書き込み・編集を承認要求にしていたが、`git checkout`、`git restore`、`git switch` などのGit操作では、そのパス認識型のツール規則を経由せずリポジトリ内ファイルを置き換えられる。
 
-これは単なる deny rule の不足ではありません。Verifier Self-modification の問題です。独立した Authority Boundary として使う Assurance / Policy Mechanism が、評価対象と同じ Agent-mutable Workspace から実行されるなら、その独立性を保証できません。
+これは単なる拒否規則の不足ではない。検証器の自己変更問題である。独立した権限境界として使う保証機構や方針機構が、評価対象と同じエージェント可変ワークスペースから実行されるなら、その独立性を保証できない。
 
-## Decision
+## 判断
 
-Production Deployment では、Agent-mutable Workspace の外に Trusted Harness Root を確立しなければなりません。
+本番配備では、エージェントが変更可能なワークスペースの外に、信頼されたハーネスのルートを確立しなければならない。
 
-Trusted Launcher は次を設定します。
+信頼された起動処理は次を設定する。
 
 ```text
 AGENT_HARNESS_TRUSTED_ROOT=/opt/agent-harness
 ```
 
-承認済み Harness Snapshot は Trusted Deployment Process によってこの Path へ Bake / Provision します。Reference Kubernetes Baseline では `/opt/agent-harness` を Container の Read-only Root Filesystem 上に置き、`/workspace` のみを Task 用 Mutable Workspace とします。
+承認済みのハーネス一式は、信頼された配備処理によってこのパスへ組み込み・配置する。Kubernetesの参照構成では `/opt/agent-harness` をコンテナの読み取り専用ルートファイルシステム上に置き、`/workspace` のみをタスク用の可変ワークスペースとする。
 
-各 Vendor Hook Command は `AGENT_HARNESS_TRUSTED_ROOT` 配下の `reference/launcher/trusted_hook.py` を呼び出します。Wrapper は、実際の Install Root が Launcher 指定の Trusted Root と一致することを確認し、同じ Trusted Root から Vendor Adapter、Semantic Policy、Repository Posture Policy を選択します。
+各ベンダーのフックコマンドは、`AGENT_HARNESS_TRUSTED_ROOT` 配下の `reference/launcher/trusted_hook.py` を呼び出す。ラッパーは、実際の設置ルートが起動処理から指定された信頼ルートと一致することを確認し、同じ信頼ルートからベンダーアダプター、意味論的方針、リポジトリ保護状態の方針を選択する。
 
-Repository-local の `.claude` / `.codex` / `.devin` Hook File は Reference / Development Wiring としては有用ですが、それ自体を独立した Authority Boundary とはみなしません。Production では Vendor が対応している場合、Hook Registration 自体も Agent-writable Workspace の外にある Trusted Launcher / Managed Configuration から Provision すべきです。Vendor が Mutable Project-local Registration しか提供しない場合、その Hook Layer は Defense in Depth に留め、Critical Invariant は Sandbox / Capability Boundary、IAM / SCM Authorization、Server-side Rule で独立して Enforcement します。
+リポジトリ内の `.claude` / `.codex` / `.devin` フックファイルは参照・開発用の接続としては有用だが、それ自体を独立した権限境界とはみなさない。本番環境では、ベンダーが対応している場合、フック登録自体もエージェントが書き換え可能なワークスペースの外にある信頼された起動処理や管理設定から配置すべきである。
 
-## RAEM Interpretation
+ベンダーが可変なプロジェクト内登録しか提供しない場合、そのフック層は多層防御の一部に留め、重要な不変条件はサンドボックス / 能力境界、IAM / SCM認可、サーバー側規則によって独立して強制する。
 
-### Abstract Invariant
+## RAEMによる整理
 
-独立した Authority Boundary として使用する Assurance / Policy Mechanism は、評価対象自身が変更できる Mutable Implementation に依存してはならない。
+### 抽象的不変条件
 
-### Refinement
+独立した権限境界として使用する保証機構や方針機構は、評価対象自身が変更できる可変実装に依存してはならない。
 
-1 Pod / 1 Agent Container の Baseline を維持したまま、Trusted Control-plane Artifact と Mutable Repository Workspace を分離する。
+### 具体化
 
-### Concrete Realization
+1 Pod / 1エージェントコンテナの基準構成を維持したまま、信頼された制御系成果物と可変なリポジトリワークスペースを分離する。
+
+### 具体的実現
 
 ```text
-/opt/agent-harness       trusted / image-provisioned / read-only
-/workspace               agent-mutable repository / worktree
+/opt/agent-harness       信頼済み / イメージ配置 / 読み取り専用
+/workspace               エージェント可変のリポジトリ / ワークツリー
 ```
 
-`AGENT_HARNESS_TRUSTED_ROOT` が Trusted Installation を識別し、`trusted_hook.py` がその Root から Adapter と Normative Policy を解決します。
+`AGENT_HARNESS_TRUSTED_ROOT` が信頼された設置先を識別し、`trusted_hook.py` がそのルートからアダプターと規範的方針を解決する。
 
-### Evidence
+### 根拠
 
-Regression Test で、Project Hook Command が Trusted Root を参照すること、Active Worktree から Adapter を解決しないこと、Trusted Root 未設定 / 不一致を拒否すること、Kubernetes Reference で Trusted Root が `/workspace` と分離された Read-only Filesystem 上にあることを確認します。
+回帰テストで、プロジェクト内フックコマンドが信頼ルートを参照すること、現在のワークツリーからアダプターを解決しないこと、信頼ルート未設定・不一致を拒否すること、Kubernetes参照構成で信頼ルートが `/workspace` と分離された読み取り専用ファイルシステム上にあることを確認する。
 
-## Consequences
+## 結果
 
-- `/workspace` 内で `git checkout` / `git restore` / `git switch` や Source Edit を行っても、Production Harness Implementation は置き換わりません。
-- Trusted Wrapper 使用時、Repository-local Posture Policy が Production の Normative Policy に暗黙昇格することを防ぎます。
-- 1 Pod / 1 Agent Container を維持し、Broker / Privileged Sidecar は追加しません。
-- Project-local Hook File を Production Execution の Trust Anchor として説明しません。
-- Agent-writable Checkout から Harness を直接実行する構成は Development / Reference Mode であり、Production Trust Model ではありません。
+- `/workspace` 内で `git checkout`、`git restore`、`git switch` やソース編集を行っても、本番ハーネス実装は置き換わらない。
+- 信頼されたラッパーを使用する場合、リポジトリ内の保護状態方針が本番環境の規範的方針へ暗黙に昇格することを防ぐ。
+- 1 Pod / 1エージェントコンテナを維持し、仲介サービスや権限を持つサイドカーは追加しない。
+- プロジェクト内フックファイルを本番実行の信頼の起点として説明しない。
+- エージェントが書き換え可能なチェックアウトからハーネスを直接実行する構成は開発・参照用であり、本番環境の信頼モデルではない。
 
-## Non-goals
+## 対象外
 
-この Decision は、Hook を Arbitrary Child-process Behavior に対する Complete Mediation Boundary にするものではありません。External Resource については IAM / SCM Scope と Server-side Control が引き続き Authoritative です。この問題は別の Review Finding として扱います。
+この判断は、フックを任意の子プロセスの振る舞いに対する完全仲介境界にするものではない。外部資源についてはIAM / SCMの権限範囲とサーバー側制御が引き続き権威的である。この問題はDL-016で扱う。
 
-## Revisit Triggers
+## 再評価条件
 
-Vendor が明確な Trust Semantics を持つ First-class Immutable / Managed Hook Package Mechanism を提供した場合、または Runtime が別途 Provision した Trusted Filesystem Root なしで Signed Policy / Harness Bundle を Attest / Execute できるようになった場合に再評価します。
+ベンダーが明確な信頼意味論を持つ変更不能または管理型のフックパッケージ機構を提供した場合、または実行環境が、別途配置した信頼ファイルシステムルートなしで署名済み方針・ハーネス一式の真正性を確認して実行できるようになった場合に再評価する。
