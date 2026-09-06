@@ -44,8 +44,9 @@ Harness の設計・実装に影響する判断を記録します。詳細レコ
 
 ## DL-007 — Active Worktree を動的解決
 
-- Status: Accepted
-- 判断: Absolute Checkout Path を埋め込まず `git rev-parse --show-toplevel` で Repository Root を解決する。
+- Status: Superseded by DL-015
+- 過去の判断: Absolute Checkout Path を埋め込まず `git rev-parse --show-toplevel` で Repository Root を解決する。
+- Superseded 理由: Agent-mutable Worktree から Policy / Assurance Code を実行すると Trusted Harness Boundary に違反する。Production Hook Execution は `AGENT_HARNESS_TRUSTED_ROOT` から解決し、Repository / Worktree Discovery は Posture / SCM Validation の Runtime Input としてのみ扱う。
 
 ## DL-008 — Harness / Config は Security-sensitive
 
@@ -93,6 +94,17 @@ Harness の設計・実装に影響する判断を記録します。詳細レコ
 - Compound Shell: 先頭が read-only command でも `&&` / Pipe / Redirection 等を含む Command は Autonomous Allowlist 外。
 - PR Creation: `gh pr create` で Repository / Head / Base の override を禁止する。
 - 理由: Arbitrary Shell / Refspec を安全に解釈する複雑さを持ち込まず、必要な Publish Path だけを狭く定義する。
+
+## DL-015 — Trusted Harness Boundary
+
+詳細: [DL-015](decisions/DL-015-trusted-harness-boundary.md)
+
+- Status: Accepted / Vendor・Runtime Update 時に再評価
+- 判断: Production の Policy / Posture / SCM Semantic Validation / Completion Code は Agent-mutable Workspace の外に Provision された `AGENT_HARNESS_TRUSTED_ROOT` から実行する。
+- Baseline: 承認済み Harness Snapshot を `/opt/agent-harness` に Bake し、Container の Read-only Root Filesystem 上に置く。`/workspace` は Mutable のまま維持する。
+- Policy Source: Trusted Wrapper は Semantic Policy と Repository Posture Policy を Trusted Root 側へ固定し、Repository-controlled File を Production Normative Policy にしない。
+- Hook Registration: Project-local Hook File は Reference / Development Wiring。Vendor が対応する場合、Production Registration は Trusted Launcher / Managed Configuration から Provision する。
+- RAEM Invariant: 独立した Authority Boundary として使う Assurance / Policy Mechanism は、評価対象自身が変更できる Implementation に依存してはならない。
 
 ## Maintenance Rule
 
