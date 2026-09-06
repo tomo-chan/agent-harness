@@ -89,8 +89,8 @@
     },
     {
       "id": "canonical-git-push",
-      "command_regex": "(?i)^\\s*git\\s+push(?:\\s+--set-upstream\\s+origin\\s+HEAD)?\\s*$",
-      "reason": "Only the canonical push forms are autonomous; semantic validation confirms repository, branch and upstream."
+      "command_regex": "(?i)^\\s*git\\s+push(?:\\s+--set-upstream)?\\s+origin\\s+HEAD:refs/heads/[^\\s;&|<>]+\\s*$",
+      "reason": "Autonomous push explicitly names origin and the destination branch; semantic validation confirms the exact branch and effective push URL."
     },
     {
       "id": "verification",
