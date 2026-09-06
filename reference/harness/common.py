@@ -2,9 +2,9 @@
 
 The functions in this module mediate agent-issued actions visible at the hook
 boundary. They do not claim complete mediation of arbitrary child-process side
-effects. Repository authority state, canonical SCM publication, control-plane
-publication approval, and completion checks are kept explicit so the security
-contract can be reviewed independently from vendor adapters.
+effects. Repository authority state, canonical SCM publication, and control-plane
+publication approval are kept explicit so the security contract can be reviewed
+independently from vendor adapters.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from policy_engine import Decision, PolicyEngine  # noqa: E402
 
 DEFAULT_POLICY = ROOT / "reference" / "policies" / "policy.example.json"
 SCM_MUTATION_RE = re.compile(
-    r"(?i)\b(?:git\s+push\b|gh\s+pr\s+(?:create|merge)\b|gh\s+release\s+(?:create|edit|upload|delete)\b)"
+    r"(?i)(?:\bgit\b[^\n;&|<>]*\bpush\b|\bgh\b[^\n;&|<>]*\bpr\s+(?:create|merge)\b|\bgh\b[^\n;&|<>]*\brelease\s+(?:create|edit|upload|delete)\b)"
 )
 READ_ONLY_COMMAND_RE = re.compile(
     r"(?i)^\s*(?:pwd|ls|find|rg|grep|cat|head|tail|wc|stat|file|tree|git\s+(?:status|diff|log|show|branch|rev-parse|worktree\s+list)\b|gh\s+pr\s+(?:view|status|checks)\b)"
@@ -47,13 +47,20 @@ CONTROL_PLANE_PREFIXES = (
     ".codex/",
     ".devin/",
     ".github/workflows/",
+    "reference/claude/",
+    "reference/codex/",
     "reference/harness/",
     "reference/hooks/",
     "reference/posture/",
     "reference/policies/",
     "reference/launcher/",
+    "reference/scripts/",
+    "reference/kubernetes/",
 )
-CONTROL_PLANE_FILES = {"AGENTS.md"}
+CONTROL_PLANE_FILES = {
+    "AGENTS.md",
+    ".github/pull_request_template.md",
+}
 
 
 def read_stdin() -> dict[str, Any]:
@@ -114,11 +121,12 @@ def _has_compound_shell(command: str) -> bool:
 
 
 def _is_scm_mutation(action: dict[str, Any]) -> bool:
-    """Conservatively detect a direct remote SCM mutation anywhere in a command.
+    """Conservatively detect recognizable direct remote SCM mutation syntax.
 
-    The search is intentionally not anchored to the command prefix. Repository
-    authority must still apply when a remote mutation is hidden behind another
-    shell segment such as ``git status && git push``.
+    The search is intentionally broader than the autonomous command allowlist:
+    Git global options and GitHub CLI global options may appear between the
+    executable and mutation subcommand. This still does not claim complete
+    mediation of aliases, dynamically constructed commands, or child processes.
     """
     return bool(SCM_MUTATION_RE.search(_command(action)))
 
@@ -368,7 +376,7 @@ def _enforce_repository_posture(raw: dict[str, Any], action: dict[str, Any], res
         if _is_scm_mutation(action):
             return Decision(
                 "deny",
-                "repository security posture is unavailable; remote SCM mutation is restricted",
+                "repository security posture is unavailable; recognizable direct remote SCM mutation is restricted",
                 "repository-posture",
             )
     else:
@@ -405,7 +413,8 @@ def evaluate(raw: dict[str, Any], vendor: str) -> Decision:
 
     Authority-state enforcement precedes approval. Approval is applied only to
     the final ``ask`` result, including semantic publication review decisions,
-    so it cannot convert a ``BLOCKED``/``RESTRICTED`` denial into an allow.
+    so it cannot convert a recognized ``BLOCKED``/``RESTRICTED`` authority denial
+    into an allow.
     """
     policy = Path(os.environ.get("AGENT_HARNESS_POLICY", str(DEFAULT_POLICY)))
     action = normalize(raw, vendor)
@@ -419,24 +428,6 @@ def evaluate(raw: dict[str, Any], vendor: str) -> Decision:
     if result.decision == "ask" and (result.rule in approved or "*" in approved):
         return Decision("allow", f"externally approved rule {result.rule}: {result.reason}", result.rule)
     return result
-
-
-def completion_check(raw: dict[str, Any]) -> tuple[bool, str]:
-    """Run the deterministic completion gate for the active task workspace."""
-    cwd = Path(str(raw.get("cwd") or os.getcwd()))
-    gate = ROOT / "reference" / "scripts" / "completion_gate.sh"
-    env = os.environ.copy()
-    try:
-        completed = subprocess.run(
-            ["bash", str(gate)], cwd=cwd, env=env, text=True,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            timeout=int(os.environ.get("AGENT_HARNESS_COMPLETION_TIMEOUT", "120")),
-            check=False,
-        )
-    except Exception as exc:
-        return False, f"completion gate failed closed: {exc}"
-    output = completed.stdout.strip()
-    return completed.returncode == 0, output or f"completion gate exited {completed.returncode}"
 
 
 def emit(value: dict[str, Any]) -> int:
