@@ -70,11 +70,11 @@ The architecture therefore treats credential compromise as a possible failure mo
 
 ## Completion assurance
 
-Completion is evidence-based, not model-asserted, and it does not trust a writable SessionStart baseline as independent evidence.
+Completion is evidence-based, not model-asserted. It trusts neither a writable SessionStart baseline nor a local remote-tracking ref as independent remote evidence.
 
-At Stop, the harness freshly evaluates repository posture and current Git state. It skips the delivery-specific completion gate only when the current branch is the checked default branch, the worktree including untracked files is clean, and local `HEAD` exactly equals `origin/<checked-default-branch>`.
+At Stop, the harness freshly evaluates repository posture and current Git state, then queries the checked GitHub repository directly for the checked default branch head SHA. The delivery-specific completion gate is skipped only when the current branch is that checked default branch, the worktree including untracked files is clean, and local `HEAD` exactly equals the branch-head SHA returned by GitHub.
 
-Every feature-branch, dirty, diverged, `BLOCKED`, or otherwise unverifiable state runs the full deterministic delivery completion gate. This keeps clean default-branch review/inspection sessions usable without allowing repository code to forge the evidence that selects the read-only exemption. The claim concerns repository delivery state only and does not prove that the session produced no external-system side effects.
+Every feature-branch, dirty, diverged, `BLOCKED`, or otherwise unverifiable state runs the full deterministic delivery completion gate. This keeps clean default-branch review/inspection sessions usable without allowing repository code to forge either a local snapshot or `refs/remotes/origin/*` and thereby select the read-only exemption. The claim concerns repository delivery state only and does not prove that the session produced no external-system side effects.
 
 ## Responsibility split
 
@@ -86,7 +86,7 @@ The intended authority split is:
 - semantic hooks: direct observed action classification and lifecycle integration;
 - sandbox/container: local capability reduction and workload isolation;
 - IAM/SCM credentials: compromise blast-radius containment;
-- GitHub Rulesets/branch protection: authoritative remote repository enforcement;
+- GitHub Rulesets/branch protection and GitHub branch-head state: authoritative remote repository evidence/enforcement;
 - deterministic tests/gates: conformance evidence for defined claims;
 - human/agent Model Review: discovery of unknown gaps not represented by existing assurance rules.
 
@@ -94,13 +94,13 @@ No single layer is described as complete security enforcement.
 
 ## Failure semantics
 
-Security-critical evaluation errors fail closed where the runtime permits it. `unknown` remains distinct from `fail`: unavailable external evidence is never silently promoted to `pass`. A missing optional repository overlay is valid because the trusted baseline remains effective; malformed explicit policy is a control-plane failure. Writable local caches may support context or performance but must not become authoritative inputs to mutation or completion decisions.
+Security-critical evaluation errors fail closed where the runtime permits it. `unknown` remains distinct from `fail`: unavailable external evidence is never silently promoted to `pass`. A missing optional repository overlay is valid because the trusted baseline remains effective; malformed explicit policy is a control-plane failure. Writable local caches, snapshots, and remote-tracking refs may support workflow mechanics but must not become authoritative inputs when repository code can rewrite them.
 
 ## RAEM interpretation
 
-This implementation separates claims from mechanisms and evidence. Model Review has already discovered several gaps: worktree-resident verifier self-modification, hook overclaiming of complete mediation, approval bypass of `BLOCKED`, incomplete SCM state binding, repository-policy masking, edit-path-only control-plane review, read-only Stop failures, and writable local caches being treated as assurance evidence. Stable findings were generalized into decisions and deterministic regression tests.
+This implementation separates claims from mechanisms and evidence. Model Review has already discovered several gaps: worktree-resident verifier self-modification, hook overclaiming of complete mediation, approval bypass of `BLOCKED`, incomplete SCM state binding, repository-policy masking, edit-path-only control-plane review, read-only Stop failures, writable local caches being treated as assurance evidence, and local remote-tracking refs being mistaken for remote authority. Stable findings were generalized into decisions and deterministic regression tests.
 
-A notable example occurred after DL-019: the first publication-diff implementation incorrectly normalized `.github/...` and the new deterministic regression test failed in CI. The defect was corrected before merge. Later model review found that the first DL-020 refinement stored its completion evidence in agent-writable local state; the design was evolved again so mutation authority and completion exemptions are derived from freshly established evidence instead. Reviews improve the model; assurance establishes only the claims supported by that evidence.
+A notable example occurred after DL-019: the first publication-diff implementation incorrectly normalized `.github/...` and the new deterministic regression test failed in CI. Later model reviews found that the first DL-020 refinement stored completion evidence in agent-writable local state, then that a subsequent refinement still relied on the locally mutable `origin/<default>` ref. The current realization derives mutation authority from freshly evaluated posture and derives remote completion evidence directly from the checked GitHub repository. Reviews improve the model; assurance establishes only the claims supported by that evidence.
 
 ---
 
