@@ -90,9 +90,10 @@ Harness の設計・実装に影響する判断を記録します。詳細レコ
 詳細: [DL-013](decisions/DL-013-canonical-scm-publication.md)
 
 - Status: Accepted / Vendor Update 時に再評価
-- 判断: Autonomous Git Publish は `git push` と `git push --set-upstream origin HEAD` の2形式だけを許可し、その後に Repository / Branch / Upstream を Semantic Validation する。
+- 判断: Agent が直接発行する Autonomous Git Publish は `git push` と `git push --set-upstream origin HEAD` の2形式だけを許可し、その後に Repository / Branch / Upstream を Semantic Validation する。
 - Compound Shell: 先頭が read-only command でも `&&` / Pipe / Redirection 等を含む Command は Autonomous Allowlist 外。
-- PR Creation: `gh pr create` で Repository / Head / Base の override を禁止する。
+- PR Creation: Direct `gh pr create` で Repository / Head / Base の override を禁止する。
+- Scope: これは Hook Boundary で観測可能な Agent-issued Action の Semantic Contract であり、Arbitrary Nested Process Effect の Complete Mediation ではない。DL-016 を参照。
 - 理由: Arbitrary Shell / Refspec を安全に解釈する複雑さを持ち込まず、必要な Publish Path だけを狭く定義する。
 
 ## DL-015 — Trusted Harness Boundary
@@ -105,6 +106,16 @@ Harness の設計・実装に影響する判断を記録します。詳細レコ
 - Policy Source: Trusted Wrapper は Semantic Policy と Repository Posture Policy を Trusted Root 側へ固定し、Repository-controlled File を Production Normative Policy にしない。
 - Hook Registration: Project-local Hook File は Reference / Development Wiring。Vendor が対応する場合、Production Registration は Trusted Launcher / Managed Configuration から Provision する。
 - RAEM Invariant: 独立した Authority Boundary として使う Assurance / Policy Mechanism は、評価対象自身が変更できる Implementation に依存してはならない。
+
+## DL-016 — Semantic Policy は Complete Mediation ではない
+
+詳細: [DL-016](decisions/DL-016-semantic-policy-is-not-complete-mediation.md)
+
+- Status: Accepted / Vendor・Runtime Update 時に再評価
+- 判断: Policy / Hook が統治するのは Hook Boundary で観測可能な Agent-issued Action であり、Allowed Command が内部で起動する Arbitrary Nested Process / Side Effect の Complete Mediation は主張しない。
+- Direct-action Claim: Harness が許可する Direct SCM Publication は Canonical Publication Contract に従う。
+- External-authority Invariant: Nested Code が Local Semantic Policy を Bypass しても、Critical Repository Authority は Least-privilege IAM / SCM Credential と Authoritative GitHub-side Rule で制約される。
+- RAEM 理由: Assurance Mechanism が実際に観測する Evidence より強い Property を主張しない。
 
 ## Maintenance Rule
 
