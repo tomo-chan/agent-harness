@@ -29,12 +29,12 @@ def _report(state: str):
     )
 
 
-def _allow(command: str, monkeypatch, fake_git):
+def _allow(command: str, monkeypatch, fake_git, rule="canonical-git-push"):
     monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
     monkeypatch.setattr(common, "_run_git", fake_git)
     raw = _raw(command)
     action = common.normalize(raw, "codex")
-    return common._enforce_repository_posture(raw, action, Decision("allow", "ok", "canonical-git-push"))
+    return common._enforce_repository_posture(raw, action, Decision("allow", "ok", rule))
 
 
 def test_restricted_blocks_remote_scm_mutation(monkeypatch):
@@ -249,3 +249,80 @@ def test_pr_create_short_aliases_cannot_override_repository_head_or_base(monkeyp
         result = common._enforce_repository_posture(raw, action, Decision("allow", "ok", "pr-publish"))
         assert result.decision == "deny"
         assert result.rule == "canonical-pr-create"
+
+
+def test_pr_create_allows_current_published_feature_branch(monkeypatch):
+    def fake_git(_cwd, args):
+        values = {
+            ("branch", "--show-current"): ("feature/review-fix", None),
+            ("remote", "get-url", "origin"): ("https://github.com/tomo-chan/agent-harness.git", None),
+            ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): ("origin/feature/review-fix", None),
+        }
+        return values[tuple(args)]
+
+    result = _allow("gh pr create --fill", monkeypatch, fake_git, "pr-publish")
+    assert result.decision == "allow"
+
+
+def test_pr_create_denies_detached_head(monkeypatch):
+    def fake_git(_cwd, args):
+        if tuple(args) == ("branch", "--show-current"):
+            return "", None
+        raise AssertionError(args)
+
+    result = _allow("gh pr create --fill", monkeypatch, fake_git, "pr-publish")
+    assert result.decision == "deny"
+    assert result.rule == "canonical-pr-create"
+    assert "detached HEAD" in result.reason
+
+
+def test_pr_create_denies_default_branch(monkeypatch):
+    def fake_git(_cwd, args):
+        if tuple(args) == ("branch", "--show-current"):
+            return "main", None
+        raise AssertionError(args)
+
+    result = _allow("gh pr create --fill", monkeypatch, fake_git, "pr-publish")
+    assert result.decision == "deny"
+    assert "default branch" in result.reason
+
+
+def test_pr_create_denies_origin_repository_mismatch(monkeypatch):
+    def fake_git(_cwd, args):
+        values = {
+            ("branch", "--show-current"): ("feature/review-fix", None),
+            ("remote", "get-url", "origin"): ("https://github.com/other/repository.git", None),
+        }
+        return values[tuple(args)]
+
+    result = _allow("gh pr create --fill", monkeypatch, fake_git, "pr-publish")
+    assert result.decision == "deny"
+    assert "origin" in result.reason
+
+
+def test_pr_create_requires_published_current_branch_upstream(monkeypatch):
+    def fake_git(_cwd, args):
+        values = {
+            ("branch", "--show-current"): ("feature/review-fix", None),
+            ("remote", "get-url", "origin"): ("https://github.com/tomo-chan/agent-harness.git", None),
+            ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): (None, "no upstream configured"),
+        }
+        return values[tuple(args)]
+
+    result = _allow("gh pr create --fill", monkeypatch, fake_git, "pr-publish")
+    assert result.decision == "deny"
+    assert "publish the current branch canonically first" in result.reason
+
+
+def test_pr_create_denies_wrong_upstream(monkeypatch):
+    def fake_git(_cwd, args):
+        values = {
+            ("branch", "--show-current"): ("feature/review-fix", None),
+            ("remote", "get-url", "origin"): ("https://github.com/tomo-chan/agent-harness.git", None),
+            ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): ("origin/other", None),
+        }
+        return values[tuple(args)]
+
+    result = _allow("gh pr create --fill", monkeypatch, fake_git, "pr-publish")
+    assert result.decision == "deny"
+    assert "origin/feature/review-fix" in result.reason
