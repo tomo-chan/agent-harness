@@ -22,6 +22,9 @@ Before making non-trivial changes, read:
 12. [DL-015: Trusted harness boundary](docs/decisions/DL-015-trusted-harness-boundary.md)
 13. [DL-016: Semantic policy is not complete mediation](docs/decisions/DL-016-semantic-policy-is-not-complete-mediation.md)
 14. [DL-017: Authority state precedes approval](docs/decisions/DL-017-authority-state-precedes-approval.md)
+15. [DL-018: Monotonic posture policy composition](docs/decisions/DL-018-monotonic-posture-policy-composition.md)
+16. [DL-019: Control-plane publication review](docs/decisions/DL-019-control-plane-publication-review.md)
+17. [DL-020: Session-aware completion assurance](docs/decisions/DL-020-session-aware-completion-assurance.md)
 
 ## Core invariants
 
@@ -33,14 +36,16 @@ Do not weaken these invariants without an explicit architectural decision:
 - Semantic hooks govern agent-issued actions visible at the hook boundary; they do not claim complete mediation of arbitrary nested processes or side effects launched by an allowed command.
 - Trusted launcher/orchestrator state establishes expected repository identity; repository-local config cannot authoritatively redefine task identity.
 - Missing trusted repository identity is `UNKNOWN`; repository mismatch is `BLOCKED`.
-- Repository-local posture mode cannot weaken the trusted minimum posture mode; the default minimum is `restricted`.
+- Trusted posture policy establishes the lower bound. Repository-local `.agent-harness/security.json` may strengthen mode/requirements or shorten TTL, but cannot weaken trusted requirements or lengthen the trusted TTL.
+- `AGENT_HARNESS_MINIMUM_POSTURE_MODE` is trusted launcher authority and may explicitly choose the trusted baseline mode for an interactive session; repository-local policy is applied only after that trusted choice and cannot weaken it.
 - Repository security posture is checked at SessionStart and revalidated before stale remote trust-boundary operations or after repository-root changes.
 - `pass`, `fail`, and `unknown` are distinct posture results; unavailable metadata must not silently become `pass`.
-- Missing posture configuration uses built-in `restricted` defaults; invalid explicit policy fails closed to `BLOCKED`.
-- `RESTRICTED` preserves local development but denies remote SCM mutation; `BLOCKED` denies mutation and cannot be weakened by an ordinary approval path.
+- Missing repository posture overlay leaves the trusted baseline unchanged; invalid trusted or repository posture policy fails closed to `BLOCKED`.
+- `RESTRICTED` preserves local development but denies remote SCM mutation; `BLOCKED` denies mutation and cannot be weakened by an ordinary or trusted external approval path.
 - Direct autonomous remote publication visible to the harness uses canonical command shapes and semantic validation, not arbitrary shell/refspec parsing.
 - Critical external-system invariants remain enforced by least-privilege IAM/SCM authority and server-side policy even if local semantic policy is bypassed by nested code.
-- Compound shell syntax is outside the autonomous allowlist even when its first command is read-only.
+- Compound shell syntax is outside the autonomous allowlist even when its first command is read-only. Remote SCM mutation inside a compound command must still be recognized for repository-authority enforcement.
+- Control-plane changes are reviewed from publication evidence, not solely from the edit primitive. Canonical push/PR creation must require explicit approval when the branch diff contains protected control-plane paths.
 - The OS sandbox reduces filesystem/process/network capability and credential exposure independently of model behavior.
 - Container/Pod isolation protects the host and resources independently of the agent sandbox.
 - Default deployment is one Pod / one agent container; do not add broker/sidecar/shim infrastructure without a concrete threat model and Decision Log entry.
@@ -50,7 +55,7 @@ Do not weaken these invariants without an explicit architectural decision:
 - Direct mutation of protected/default branches must not be part of the normal autonomous path.
 - Production-impacting operations require an explicitly designed authorization path.
 - MCP and other external tools are part of the security boundary and require server-side authorization.
-- Completion is determined by machine-verifiable predicates, not by model claims.
+- Completion is determined by machine-verifiable predicates, not by model claims. An unchanged SessionStart/Stop Git snapshot is deterministic evidence for a read-only session; changed or unverifiable state must run the full delivery completion gate.
 - Autonomous loops must have bounded retries, time, tool calls, and/or cost.
 
 ## Architecture conventions
@@ -61,6 +66,7 @@ Keep vendor-specific behavior behind adapters. The preferred flow is:
 flowchart LR
     TL[Trusted launcher state] --> RP[Repository Posture]
     SS[SessionStart] --> RP
+    SS --> CS[Completion baseline]
     V[Vendor PreToolUse] --> A1[Vendor Adapter]
     A1 --> N[Normalized Action]
     N --> P[Policy Engine]
@@ -70,7 +76,8 @@ flowchart LR
     D -->|allow local| A2[Vendor Adapter]
     D -->|ask| A2
     D -->|deny| A2
-    SV --> A2
+    SV --> CP[Control-plane diff review]
+    CP --> A2
     A2 --> R[Vendor-specific response]
 ```
 
@@ -82,7 +89,7 @@ Do not put vendor-specific semantics into the central policy engine unless they 
 - [`docs/ja/`](docs/ja/) — Japanese counterparts
 - [`docs/decisions/`](docs/decisions/) — detailed implementation decisions
 - [`reference/hooks/`](reference/hooks/) — policy engine
-- [`reference/harness/`](reference/harness/) — runnable vendor adapters and SCM semantic validation
+- [`reference/harness/`](reference/harness/) — runnable vendor adapters, SCM semantic validation, and session-aware completion assurance
 - [`reference/posture/`](reference/posture/) — repository security posture checker and state cache
 - [`reference/policies/`](reference/policies/) — semantic and repository-security policy examples
 - [`reference/launcher/`](reference/launcher/) — trusted hook wrapper and optional preflight utilities
@@ -102,15 +109,17 @@ When changing an English architecture document, update the corresponding Japanes
 - Direct autonomous Git publication visible at the hook boundary is limited to `git push` and `git push --set-upstream origin HEAD`; validate repository, current branch, default branch, `origin` and upstream before allowing it.
 - `git push --set-upstream origin HEAD` is only for first publication when no upstream exists; subsequent publication uses `git push` with upstream `origin/<current-branch>`.
 - Autonomous `gh pr create` must not override repository, head branch or base branch and must be bound to the checked repository, current non-default branch, and published upstream `origin/<current-branch>`.
+- Deny force push variants, including valued `--force-with-lease=<ref>` forms.
+- Treat protected control-plane files as publication-review artifacts. Edit-time path classification is defense in depth; publication-time diff evidence is the path-independent approval boundary.
 - Do not interpret an allowed test/build/tool invocation as proof that every nested subprocess or network side effect was mediated by hooks.
 - For invariants that must survive nested code execution, refine enforcement to sandbox/workload capability controls, IAM/SCM scope, network policy where required, and authoritative server-side rules.
-- Deny rules take precedence over ask/allow rules. Repository authority states such as `BLOCKED` take precedence over ordinary approval decisions.
+- Deny rules take precedence over ask/allow rules. Repository authority states such as `BLOCKED` and `RESTRICTED` take precedence over approval decisions.
 - Security-critical errors fail closed wherever the runtime permits it.
 - Never embed real secrets, tokens, account identifiers, private endpoints, or production credentials in examples/tests.
 - Deny obvious credential extraction (`gh auth token`, direct reads of known credential stores) as defense in depth, but rely on IAM/SCM scope and server-side rules for compromise containment.
 - Keep Kubernetes examples non-privileged and avoid `hostPath`, host networking, runtime sockets, and unnecessary extra containers.
 - Do not introduce a generic privileged shell/MCP/SCM proxy as a shortcut around policy or solely to emulate complete mediation.
-- Protect `.agent-harness/`, vendor hook config, harness, posture, policy and CI files as control-plane artifacts; production trust must still come from the trusted harness root rather than mutable repository copies.
+- Protect `.agent-harness/`, vendor hook config, harness, posture, policy, launcher and CI files as control-plane artifacts; production trust must still come from the trusted harness root rather than mutable repository copies.
 
 ## Testing
 
@@ -120,7 +129,7 @@ For harness changes, run:
 python -m pytest reference/hooks/tests reference/harness/tests reference/posture/tests -q
 ```
 
-Preserve regression coverage for safe read-only Git, force-push denial, approval-required actions, credential extraction denial, control-plane file protection, trusted harness root resolution, repository posture state derivation, missing/mismatched trusted repository identity, repository-local mode not weakening trusted minimum, `RESTRICTED` remote-mutation denial, `BLOCKED` mutation denial and approval precedence, compound-shell bypass attempts, non-canonical direct push/refspec rejection, default-branch direct push rejection, origin/upstream mismatch, first-publication semantics, PR repository/head/base override rejection, PR current-Git-state binding, and required production-code docstrings.
+Preserve regression coverage for safe read-only Git, all force-push forms including valued force-with-lease, approval-required actions, credential extraction denial, trusted harness root resolution, trusted/repository posture-policy composition, trusted launcher mode override, repository-local weakening attempts, repository posture state derivation, missing/mismatched trusted repository identity, `RESTRICTED` remote-mutation denial including compound commands, `BLOCKED` mutation denial and approval precedence, compound-shell bypass attempts, non-canonical direct push/refspec rejection, default-branch direct push rejection, origin/upstream mismatch, first-publication semantics, control-plane publication diff approval, PR repository/head/base override rejection, PR current-Git-state binding, session-aware read-only completion, changed-state delivery completion, and required production-code docstrings.
 
 ## Decision log requirement
 
@@ -130,7 +139,7 @@ For temporary/vendor-dependent choices, record the limitation, workaround, and r
 
 ## Documentation expectations
 
-Distinguish trusted task identity, repository posture detection, behavioral guidance, semantic policy, static permissions, SCM semantic validation, OS capability isolation, workload isolation, IAM/SCM containment, server-side enforcement, and observability. Do not describe a prompt, hook, deny-list, sandbox, credential secrecy assumption, or direct-command validator as a complete security control when nested execution or a lower-level authority boundary exists.
+Distinguish trusted task identity, trusted posture baseline, repository posture overlay, posture detection, behavioral guidance, semantic policy, static permissions, SCM semantic validation, publication evidence, OS capability isolation, workload isolation, IAM/SCM containment, server-side enforcement, completion evidence, and observability. Do not describe a prompt, hook, deny-list, sandbox, credential secrecy assumption, or direct-command validator as a complete security control when nested execution or a lower-level authority boundary exists.
 
 Japanese documentation must be written as Japanese documentation, not English terminology embedded in Japanese prose. Translate conceptual terms, headings, explanatory labels, and ordinary technical nouns into established Japanese terminology wherever a natural Japanese term exists. Keep the original spelling only when it is an identifier or proper name whose spelling is operationally significant, such as code symbols, environment variables, command names/options, file paths, protocol/product names, API fields, or values that must match an implementation. When an English term is useful for disambiguation, introduce it parenthetically on first use rather than repeatedly mixing English terminology into the Japanese text.
 
@@ -147,7 +156,10 @@ flowchart LR
     V --> C[Commit]
     C --> P[Posture READY?]
     P -->|yes| U[Canonical direct push]
-    U --> R[Pull Request]
+    U --> X{Control-plane diff?}
+    X -->|yes| A[Explicit approval]
+    X -->|no| R[Pull Request]
+    A --> R
     P -->|no| L[Remain local / remediate]
 ```
 
