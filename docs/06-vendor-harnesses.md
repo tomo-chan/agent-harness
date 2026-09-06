@@ -2,11 +2,12 @@
 
 # Vendor Harness Implementations
 
-The repository contains project-local harness configurations for Claude Code, OpenAI Codex, and Devin CLI. All three use the same deny-first Policy Engine, repository posture checker, SCM semantic validator, and deterministic completion gate.
+The repository contains reference hook wiring for Claude Code, OpenAI Codex, and Devin CLI. All three use the same deny-first Policy Engine, repository posture checker, SCM semantic validator, and deterministic completion gate. In production, the executable harness and normative policy are resolved from a trusted root outside the agent-mutable workspace.
 
 ```mermaid
 flowchart LR
-    TL[Trusted launcher state] --> RP[Repository Posture Checker]
+    TL[Trusted launcher state] --> TR[Trusted Harness Root]
+    TR --> RP[Repository Posture Checker]
     SS[SessionStart] --> RP
     RP --> ST[READY / RESTRICTED / BLOCKED]
     PT[PreToolUse] --> N[Normalized Action]
@@ -26,13 +27,14 @@ flowchart LR
 
 ## Files
 
-- [`.claude/settings.json`](../.claude/settings.json) — Claude Code SessionStart, PreToolUse, Stop hooks and sandbox baseline.
-- [`.codex/hooks.json`](../.codex/hooks.json) — Codex SessionStart, PreToolUse, Stop hooks.
-- [`.devin/hooks.v1.json`](../.devin/hooks.v1.json) — Devin CLI SessionStart, PreToolUse, Stop hooks.
+- [`.claude/settings.json`](../.claude/settings.json) — Claude Code SessionStart, PreToolUse, Stop reference hook wiring and sandbox baseline.
+- [`.codex/hooks.json`](../.codex/hooks.json) — Codex SessionStart, PreToolUse, Stop reference hook wiring.
+- [`.devin/hooks.v1.json`](../.devin/hooks.v1.json) — Devin CLI SessionStart, PreToolUse, Stop reference hook wiring.
 - [`.devin/config.json`](../.devin/config.json) — Devin CLI static permissions.
+- [`reference/launcher/trusted_hook.py`](../reference/launcher/trusted_hook.py) — trusted-root hook entrypoint.
 - [`reference/harness/`](../reference/harness/) — vendor adapters and SCM semantic validation.
 - [`reference/posture/checker.py`](../reference/posture/checker.py) — GitHub repository security posture checker.
-- [`reference/policies/repository-security.example.json`](../reference/policies/repository-security.example.json) — repository-local posture requirements.
+- [`reference/policies/repository-security.example.json`](../reference/policies/repository-security.example.json) — trusted repository posture requirements example.
 - [`reference/policies/policy.example.json`](../reference/policies/policy.example.json) — semantic action policy.
 - [`reference/launcher/preflight.py`](../reference/launcher/preflight.py) — optional explicit preflight for launchers/CI.
 - [`reference/kubernetes/agent-pod.yaml`](../reference/kubernetes/agent-pod.yaml) — one-Pod / one-container deployment baseline.
@@ -41,11 +43,32 @@ flowchart LR
 
 The default architecture is deliberately one Pod / one agent container. A separate SCM broker, sidecar, `git` shim, or `gh` shim is not part of the baseline. Credential exposure is reduced with sandboxing and policy, while credential compromise is contained independently by short-lived repository-scoped credentials, least-privilege GitHub App/IAM permissions, and GitHub-side rulesets. See [DL-011](decisions/DL-011-sandbox-first-credential-isolation.md).
 
+## Trusted harness boundary
+
+The production harness implementation must not be sourced from the repository/worktree being evaluated. The trusted launcher supplies a root such as:
+
+```bash
+export AGENT_HARNESS_TRUSTED_ROOT=/opt/agent-harness
+```
+
+The approved harness snapshot is baked or otherwise provisioned into that root by the trusted deployment process. The Kubernetes reference keeps `/opt/agent-harness` on the container read-only root filesystem and `/workspace` as the mutable task workspace.
+
+Project-local hook files invoke:
+
+```text
+$AGENT_HARNESS_TRUSTED_ROOT/reference/launcher/trusted_hook.py
+```
+
+The wrapper verifies that it is itself executing from the configured trusted root, resolves the vendor adapter from the same root, and pins the semantic policy and repository-posture policy to trusted-root files. Repository Git operations therefore cannot replace the production verifier implementation or its normative policy merely by changing files in `/workspace`.
+
+The project-local `.claude`, `.codex`, and `.devin` files are reference/development wiring, not an independent production authority boundary. Where the vendor supports trusted/managed registration, provision the hook registration itself from the trusted launcher or managed configuration outside the agent-writable workspace. If only mutable project-local registration is available, hooks remain defense in depth and critical invariants must still be enforced independently by capability boundaries, IAM/SCM authorization, and server-side rules. See [DL-015](decisions/DL-015-trusted-harness-boundary.md).
+
 ## Trusted launcher state and SessionStart posture
 
 Repository identity is trusted task state, not something a repository may self-assert. The launcher/orchestrator should set:
 
 ```bash
+export AGENT_HARNESS_TRUSTED_ROOT=/opt/agent-harness
 export AGENT_HARNESS_EXPECTED_REPOSITORY=owner/repository
 export AGENT_HARNESS_MINIMUM_POSTURE_MODE=restricted
 ```
@@ -58,7 +81,7 @@ At `SessionStart`, the checker compares `origin` with the trusted expected repos
 - `RESTRICTED` — local development may continue but remote SCM mutation is denied;
 - `BLOCKED` — mutating operations are denied.
 
-Missing trusted repository identity is `UNKNOWN`; under the default minimum it remains `RESTRICTED`. A trusted repository mismatch is always `BLOCKED`. Missing `.agent-harness/security.json` uses built-in `restricted` defaults; invalid explicit policy is `BLOCKED`.
+Missing trusted repository identity is `UNKNOWN`; under the default minimum it remains `RESTRICTED`. A trusted repository mismatch is always `BLOCKED`. In trusted-hook mode the wrapper supplies the repository security policy from the trusted root rather than allowing repository-controlled posture policy to become the production normative policy.
 
 The result is cached per session. A stale cache or repository-root change triggers re-evaluation. See [DL-012](decisions/DL-012-sessionstart-repository-posture.md).
 
@@ -90,21 +113,21 @@ Use native SessionStart and PreToolUse hooks plus the sandbox. Deny known creden
 
 ### Codex
 
-Use project hooks plus the Codex sandbox/workspace controls. Current Codex PreToolUse `ask` remains mapped to deny until runtime enforcement provides the contract required by this harness. Repository posture and GitHub-side controls remain independent of that hook limitation.
+Use hooks plus the Codex sandbox/workspace controls. Current Codex PreToolUse `ask` remains mapped to deny until runtime enforcement provides the contract required by this harness. Repository posture and GitHub-side controls remain independent of that hook limitation.
 
 ### Devin CLI
 
 Use lifecycle hooks, static permissions, and the Devin sandbox. Keep native `git` and `gh` rather than introducing a broker by default. SessionStart provides posture context/cache; PreToolUse remains the semantic enforcement point.
 
-## Worktree-safe invocation
+## Trusted hook invocation and worktree discovery
 
-Hook commands locate the active repository with `git rev-parse --show-toplevel`. Moving between worktrees for the same repository is supported; moving to another repository causes posture re-evaluation.
+Hook code is resolved from `AGENT_HARNESS_TRUSTED_ROOT`, not from `git rev-parse --show-toplevel`. The active repository/worktree is still discovered from the hook event `cwd` and Git state as runtime input to posture and SCM semantic validation. Moving between worktrees of the same repository remains supported; moving to another repository causes posture re-evaluation without changing which verifier implementation is executed.
 
 ## Approval and completion
 
 Central-policy `ask` remains external-approval class. Compound shell and non-canonical remote publication therefore fall out of the autonomous path rather than being guessed safe by prefix regexes. Claude Code can use native PreToolUse `ask`; Codex and Devin mappings stay fail-closed where their hook approval semantics do not provide the same contract.
 
-The `Stop` hook runs [`completion_gate.sh`](../reference/scripts/completion_gate.sh). External orchestration still needs retry/time/tool/cost circuit breakers.
+The `Stop` hook runs the completion gate from the trusted harness root. External orchestration still needs retry/time/tool/cost circuit breakers.
 
 ## Validation
 
@@ -115,7 +138,7 @@ AGENT_HARNESS_EXPECTED_REPOSITORY=owner/repository \
   python reference/launcher/preflight.py --json
 ```
 
-Regression coverage includes compound-shell bypass, arbitrary push/refspec rejection, trusted repository mismatch, repository-local `warn` not weakening the default minimum, default-branch push rejection, and PR repository/head/base overrides.
+Regression coverage includes the trusted-harness root boundary, compound-shell bypass, arbitrary push/refspec rejection, trusted repository mismatch, repository-local `warn` not weakening the default minimum, default-branch push rejection, and PR repository/head/base overrides.
 
 ---
 
