@@ -56,7 +56,7 @@ This log records implementation choices that shape the harness. Detailed records
 ## DL-009 — Stop hooks use deterministic completion gates
 
 - Status: Accepted; refined by DL-020
-- Decision: Stop hooks use deterministic completion assurance. A clean checked default branch equal to its checked remote branch may complete as read-only repository state; every other or unverifiable state runs the full delivery gate.
+- Decision: Stop hooks use deterministic completion assurance. A clean checked default branch whose local HEAD equals the branch-head SHA returned directly by the checked GitHub repository may complete as read-only repository state; every other or unverifiable state runs the full delivery gate.
 
 ## DL-010 — Hooks are defense in depth, not final authority
 
@@ -147,7 +147,7 @@ Detailed record: [DL-019](decisions/DL-019-control-plane-publication-review.md).
 Detailed record: [DL-020](decisions/DL-020-session-aware-completion-assurance.md).
 
 - Status: Accepted
-- Decision: Do not persist an authority-bearing SessionStart completion baseline. At Stop, freshly establish posture and Git state; only a clean checked default branch exactly equal to `origin/<default>` receives the read-only repository exemption.
+- Decision: Do not persist an authority-bearing SessionStart completion baseline and do not treat local remote-tracking refs as remote authority. At Stop, freshly establish posture and Git state, obtain the checked default-branch head directly from GitHub, and grant the read-only repository exemption only when local HEAD exactly matches that authoritative SHA.
 - Failure semantics: every other or unverifiable state runs the full delivery completion gate.
 
 ## Maintenance rule
