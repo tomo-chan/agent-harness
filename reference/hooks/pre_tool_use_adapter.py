@@ -16,6 +16,7 @@ from policy_engine import PolicyEngine
 
 
 def normalize(raw: dict) -> dict:
+    """Normalize a generic PreToolUse-style payload for the central policy engine."""
     return {
         "event": "pre_tool_use",
         "tool": raw.get("tool_name", raw.get("tool", "")),
@@ -29,6 +30,7 @@ def normalize(raw: dict) -> dict:
 
 
 def main() -> int:
+    """Evaluate one normalized hook action and emit a portable policy decision."""
     policy_path = Path(os.environ.get("AGENT_POLICY", "reference/policies/policy.example.json"))
     raw = json.load(sys.stdin)
     action = normalize(raw)
