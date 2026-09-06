@@ -1,15 +1,15 @@
 """Repository authority evaluation independent of SCM publication semantics.
 
-S2 owns repository identity, protection posture, cache non-authority, and the
-ordering rule that repository authority precedes ordinary approval. Callers from
-later slices classify whether an observed operation is a mutation and whether a
-RESTRICTED state forbids that operation; S2 deliberately does not encode SCM
-command semantics.
+S2 owns repository identity, protection posture, cache non-authority, generic
+mutation classification, and the ordering rule that repository authority
+precedes ordinary approval. Later slices classify whether a mutation is a
+RESTRICTED operation; S2 deliberately does not encode SCM publication semantics.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import time
@@ -25,6 +25,41 @@ for path in (HOOKS_DIR, POSTURE_DIR):
 
 from checker import check_repository_posture, load_cached_posture, save_cached_posture  # noqa: E402
 from policy_engine import Decision  # noqa: E402
+
+_MUTATING_TOOLS = {"write", "edit", "multi_edit", "apply_patch"}
+_READ_ONLY_TOOLS = {"read", "glob", "grep"}
+_READ_ONLY_COMMAND_RE = re.compile(
+    r"(?i)^\s*(?:pwd|ls|find|rg|grep|cat|head|tail|wc|stat|file|tree|"
+    r"git\s+(?:status|diff|log|show|branch|rev-parse|worktree\s+list)\b|"
+    r"gh\s+pr\s+(?:view|status|checks)\b)(?:\s+[^;&|<>\n]*)?\s*$"
+)
+
+
+def is_mutation(action: dict[str, Any]) -> bool:
+    """Conservatively classify whether an observed generic action can mutate state.
+
+    S2 needs only the distinction required to enforce ``BLOCKED`` before ordinary
+    approval. This function intentionally does not decide whether a mutation is a
+    remote SCM publication; that classification belongs to S3.
+    """
+    tool = str(action.get("tool", "")).lower()
+    if tool in _MUTATING_TOOLS:
+        return True
+    if tool in _READ_ONLY_TOOLS:
+        return False
+
+    payload = action.get("input", {})
+    if not isinstance(payload, dict):
+        return True
+    command = payload.get("command")
+    if command is None:
+        return False
+    if isinstance(command, list):
+        command = " ".join(str(item) for item in command)
+    command = str(command)
+    if not command:
+        return False
+    return not bool(_READ_ONLY_COMMAND_RE.fullmatch(command))
 
 
 def _run_git(cwd: Path, args: Sequence[str]) -> tuple[str | None, str | None]:
@@ -107,11 +142,10 @@ def enforce_repository_authority(
     """Apply fresh repository authority before ordinary approval decisions.
 
     Args:
-        raw: Normalized hook context containing at least ``cwd`` and optionally
+        raw: Raw hook context containing at least ``cwd`` and optionally
             ``session_id``.
         result: Lower-level policy decision before authority enforcement.
-        mutation: Whether the observed operation can mutate state. Classification
-            belongs to the caller because S2 does not own command semantics.
+        mutation: Whether the observed operation can mutate state.
         restricted_operation: Whether the operation is forbidden while posture is
             ``RESTRICTED``. Later slices, notably S3, define this classification.
 
