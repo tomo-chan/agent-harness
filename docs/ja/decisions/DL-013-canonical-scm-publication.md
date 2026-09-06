@@ -1,56 +1,66 @@
-# DL-013 — Canonical SCM Publication Command
+# DL-013 — 正規形SCM公開コマンド
 
 - 日付: 2026-09-05
-- Status: Accepted / Vendor Update 時に再評価
-- 対象: Shell Policy / Git Publish / GitHub PR Creation
+- 状態: 採用 / ベンダー更新時に再評価
+- 対象: シェル方針 / Git公開 / GitHubプルリクエスト作成
 
 ## 判断
 
-Autonomous な Publish Path では、任意の Shell / Git Syntax を広い Regex Allowlist で許可せず、狭い Canonical Command だけを許可します。
+自律的な公開経路では、任意のシェル構文やGit構文を広い正規表現許可一覧で許可せず、狭い正規形コマンドだけを許可する。
 
-Autonomous に許可する Push 形式は次の2つです。
+自律的に許可するpush形式は次の2つとする。
 
 ```bash
 git push
 git push --set-upstream origin HEAD
 ```
 
-さらに Semantic Validator で次を確認した場合だけ実行を許可します。
+さらに、意味論検証で次を確認した場合だけ実行を許可する。
 
-- Repository Posture が `READY`
-- Current Branch が GitHub から取得した Default Branch ではない
-- `origin` が SessionStart で確認した Repository と一致する
-- 単純な `git push` の Upstream が `origin/<current-branch>`
-- Arbitrary Remote / Refspec / Tag / Delete / Force / `-c` Config Override / Destination Branch を指定していない
+- リポジトリ保護状態が `READY`
+- 現在ブランチがGitHubから取得した既定ブランチではない
+- `origin` がSessionStartで確認したリポジトリと一致する
+- 単純な `git push` の上流ブランチが `origin/<current-branch>`
+- `git push --set-upstream origin HEAD` は上流ブランチがまだ存在しない場合だけ使用する
+- 任意のremote、refspec、tag、delete、force、`-c` 設定上書き、送信先ブランチを指定していない
 
-`gh pr create` では Repository / Head Branch / Base Branch の Override を禁止します。これらは Agent が自由に指定するのではなく、確認済み Repository と Current Git State から決定します。
+`gh pr create` では、リポジトリ、作業元ブランチ、基準ブランチの上書きを禁止する。さらに、自律的なプルリクエスト作成は現在の検証済みGit状態へ結び付け、次を満たす場合だけ許可する。
 
-`&&`, `||`, `;`, Pipe, Redirection, Newline, Command Substitution などの Compound Shell Syntax は Autonomous Allowlist の対象外とし、Approval / Deny 側へフォールバックします。
+- リポジトリ保護状態が `READY`
+- 現在ブランチがdetached HEADではなく、GitHubから取得した既定ブランチでもない
+- `origin` が確認済みリポジトリと一致する
+- 現在ブランチが `origin/<current-branch>` を上流ブランチとして既に公開済みである
+
+これにより、自律的なプルリクエスト作成の前に、正規形のブランチ公開が完了していることを要求する。リポジトリ、作業元ブランチ、基準ブランチはエージェントが任意指定するのではなく、確認済みリポジトリと現在のGit状態から導出する。
+
+`&&`、`||`、`;`、パイプ、リダイレクト、改行、コマンド置換などの複合シェル構文は自律許可対象外とし、承認要求または拒否側へフォールバックする。先頭コマンドだけを見て分類しない。
 
 ## 理由
 
-`^git status` のような Prefix Regex では、例えば次の Command を Read-only と誤判定できます。
+`^git status` のような前方一致正規表現では、例えば次のコマンドを読み取り専用と誤判定できる。
 
 ```bash
 git status && git push origin feature/x
 ```
 
-これは `RESTRICTED` Session が Remote SCM Authority Boundary を越えてはならないという Invariant に違反します。Arbitrary Shell を安全に Parse することは Harness の目的に対して過剰な複雑さを持つため、Autonomous Publish Path 自体を狭くします。
+これは `RESTRICTED` セッションが遠隔SCM権限境界を越えてはならないという不変条件に違反する。任意のシェルを安全に解析することはハーネスの目的に対して過剰な複雑さを持つため、自律公開経路自体を狭くする。
+
+同じ考え方をプルリクエスト作成にも適用する。`--repo`、`--head`、`--base` の明示的な上書きを禁止するだけでは、現在のGit状態が以前ハーネスで確認した状態と異なる場合を防げない。そのため、自律的なプルリクエスト作成も、正規形公開と同じ現在ブランチ、確認済み `origin`、期待される上流ブランチへ意味論的に結び付ける。
 
 ## 責務分離
 
-- Policy Engine: Narrow Command Shape だけを Autonomous と分類
-- SCM Semantic Validator: Repository / Branch / Upstream / Override を検証
-- Repository Posture: Trusted Repository / Default Branch Context を供給し、Publish 時は `READY` 必須
-- GitHub IAM / App Permission: Credential Compromise の Blast Radius を制限
-- GitHub Ruleset / Branch Protection: Server-side の最終 Enforcement Boundary
+- 方針エンジン: 狭いコマンド形だけを自律操作として分類する
+- SCM意味論検証器: リポジトリ、ブランチ、上流ブランチ、公開状態、禁止された上書きを検証する
+- リポジトリ保護状態: 信頼されたリポジトリと既定ブランチの文脈を提供し、公開時は `READY` を必須とする
+- GitHub IAM / App権限: 認証情報侵害時の影響範囲を制限する
+- GitHubルールセット / ブランチ保護: サーバー側の権威的な強制境界を担う
 
-## Trusted Repository Identity
+## 信頼されたリポジトリ識別情報
 
-`AGENT_HARNESS_EXPECTED_REPOSITORY` は Trusted Launcher / Orchestrator が設定し、Authoritative とします。Repository-local `.agent-harness/security.json` は追加要件を定義できますが、Trusted Task Identity 自体を確立・上書きする役割は持ちません。
+`AGENT_HARNESS_EXPECTED_REPOSITORY` は信頼された起動処理またはオーケストレーターが設定し、権威的な値とする。リポジトリ内の `.agent-harness/security.json` は追加要件を定義できるが、信頼された作業識別情報そのものを単独で確立・上書きできない。
 
-また `AGENT_HARNESS_MINIMUM_POSTURE_MODE` も Launcher 側が所有します。Default は `restricted` とし、Repository-local の `mode: warn` だけで unattended execution を弱められないようにします。Interactive 用に弱める場合だけ Trusted Launcher が明示的に変更します。
+また `AGENT_HARNESS_MINIMUM_POSTURE_MODE` も起動処理側が所有する。標準値は `restricted` とし、リポジトリ内の `mode: warn` だけで無人実行を弱められないようにする。対話用途で弱める場合だけ、信頼された起動処理が明示的に変更する。
 
 ## 再評価条件
 
-Vendor が Structured argv / Tool Semantics を公開し Shell String Parsing が不要になった場合、または Repository / Ref Constraint を直接表現できる First-class SCM Publish Tool を提供した場合に再評価します。Shell Parser を複雑化するより、より強い Structured Primitive へ置き換えることを優先します。
+ベンダーが構造化されたargvまたはツール意味論を公開し、シェル文字列解析が不要になった場合、またはリポジトリや参照制約を直接表現できる第一級のSCM公開・プルリクエスト作成機能を提供した場合に再評価する。シェル解析を複雑化するより、より強い構造化された機構へ置き換えることを優先する。
