@@ -1,102 +1,107 @@
-[← Design Principles](02-design-principles.md) | [日本語](ja/03-security-model.md) | [Next: Adoption Guide →](04-adoption-guide.md)
+[← Design Principles](02-design-principles.md) | [日本語](ja/03-security-model.md) | [Adoption Guide →](04-adoption-guide.md)
 
 # Security Model
 
+This security model assumes the agent, repository code, and repository-local configuration may be wrong or adversarial. The LLM is not a security boundary. Critical invariants are distributed across trusted launcher state, a trusted harness implementation, semantic hooks, sandbox/workload capability boundaries, least-privilege IAM/SCM authority, and server-side repository policy.
+
 ## Threat model
 
-Assume the agent can encounter malicious instructions in source/issues/web/tool output, hallucinated or destructive commands, compromised dependencies, accidental credential disclosure, over-privileged MCP tools, incorrect repository/worktree selection, shell-command ambiguity, runaway retries, compromised local policy code, and attempts to reach cloud metadata or internal control-plane endpoints.
+Assume that an autonomous agent may make an incorrect decision, follow malicious repository instructions, execute repository code with unexpected side effects, attempt direct or indirect credential extraction, mutate control-plane files, or try to publish to an unintended repository/ref. Also assume allowed commands such as tests can launch arbitrary child processes outside hook visibility.
 
-Also assume **credential compromise is possible**. The architecture must limit the damage even when a GitHub credential becomes visible to the agent.
+The design therefore does not depend on perfect model behavior, perfect prompt following, or complete hook mediation.
 
-Also assume an allowed command may execute arbitrary repository-controlled code internally. A hook that observes `pytest`, `npm test`, or another outer invocation may not observe every subprocess, network request, or secondary SCM action performed by that code.
+## Trusted authority and repository input
 
-## Defense in depth and responsibility separation
+Trusted task identity comes from `AGENT_HARNESS_EXPECTED_REPOSITORY`. The production policy/posture evaluator and semantic validator execute from `AGENT_HARNESS_TRUSTED_ROOT`, outside the agent-mutable workspace.
 
-```mermaid
-flowchart TD
-    T[Trusted task identity] --> SS[SessionStart posture check<br/>verify repository and controls]
-    M[Model behavior] --> H[Semantic policy / hooks<br/>classify observable agent-issued actions]
-    SS --> H
-    H --> SV[SCM semantic validator<br/>canonical direct publication]
-    H --> P[Permissions / rules<br/>limit routine tool authority]
-    SV --> P
-    P --> S[OS sandbox<br/>reduce filesystem/process/network capability]
-    S --> C[Single hardened container / Pod<br/>protect host and resources]
-    C --> I[IAM / SCM authorization<br/>contain credential or local-policy compromise]
-    I --> R[GitHub rulesets / server-side policy<br/>authoritative resource protection]
+Repository posture policy has two authority levels. A trusted baseline is supplied by `AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY` or built-in restricted defaults. A trusted launcher may explicitly choose the baseline mode through `AGENT_HARNESS_MINIMUM_POSTURE_MODE`; this preserves an intentional interactive `warn` mode. Repository-local `.agent-harness/security.json` is then treated as untrusted strengthening input.
+
+For the current policy vocabulary:
+
+```text
+trusted_mode          = launcher override if supplied, else trusted baseline mode
+mode_effective        = stricter(trusted_mode, repository_mode)
+requirement_effective = trusted OR repository
+ttl_effective         = min(trusted, repository)
 ```
 
-No single layer is expected to catch every failure. Sandbox does **not** own the responsibility of making repository safety depend on perfect credential secrecy, and hooks do not own authoritative repository identity, server-side branch policy, or complete mediation of arbitrary nested execution.
+Repository policy may therefore add controls or select a stricter mode, but it cannot remove trusted requirements or extend the trusted cache lifetime. Repository-local `expected_repository` is only an additional consistency claim; it cannot replace trusted task identity. Invalid trusted or repository posture policy produces `BLOCKED`.
 
-## Trusted computing base
+## Repository authority state
 
-Keep the TCB small. The baseline includes the orchestrator/trusted launcher, trusted-root policy engine, posture checker, SCM semantic validator, sandbox implementation, workload isolation, credential issuance/authorization system, and external server-side policy. Agent-generated code and model reasoning are untrusted. A broker/sidecar is intentionally excluded from the default TCB because adding one creates additional privileged code and operational state.
+SessionStart evaluates repository identity, GitHub metadata, and effective rules applying to the default branch. Each required observation is normalized to `pass`, `fail`, or `unknown`. The effective policy derives one of three authority states:
 
-Production policy, posture, SCM validation, and completion implementation execute from `AGENT_HARNESS_TRUSTED_ROOT`, outside the agent-mutable workspace. Repository copies remain reference/development artifacts. See [DL-015](decisions/DL-015-trusted-harness-boundary.md).
+- `READY`: required evidence satisfies the effective policy, or trusted `warn` mode accepts non-passing evidence as warnings;
+- `RESTRICTED`: local development may continue, but remote SCM mutation is denied;
+- `BLOCKED`: mutation is denied.
 
-## Trusted task identity
+Authority state precedes approval. `BLOCKED` cannot be weakened by native prompts or trusted external approval. `RESTRICTED` cannot be used to authorize remote SCM mutation through an approval path. Cached posture is refreshed after TTL expiry or repository-root change.
 
-The repository is part of task identity. The trusted launcher supplies `AGENT_HARNESS_EXPECTED_REPOSITORY`; repository-local configuration cannot authoritatively replace it. Missing trusted identity is `UNKNOWN` and therefore prevents remote publication under the default `restricted` minimum. Mismatch is `BLOCKED`.
+## Direct-action semantic policy
 
-The trusted launcher also owns `AGENT_HARNESS_MINIMUM_POSTURE_MODE`, defaulting to `restricted`. Repository-local `mode: warn` cannot weaken that minimum. This prevents a repository from weakening the policy that determines whether it may publish to itself.
+Hooks govern agent-issued actions visible at the hook boundary. They do not claim complete mediation of arbitrary nested subprocess effects.
 
-## Repository posture
-
-At SessionStart, verify assumptions that publication policy depends on: trusted repository identity, default branch, required pull requests, force-push prevention, and required status checks where those controls can be read from GitHub.
-
-Checks are three-valued:
-
-- `pass`: the control is verified;
-- `fail`: the control is verified absent or non-compliant;
-- `unknown`: the control cannot currently be verified.
-
-`unknown` must not silently become `pass`. The effective posture mode decides whether it blocks, restricts or warns. Explicit trusted repository mismatch remains `BLOCKED` regardless of mode. See [DL-012](decisions/DL-012-sessionstart-repository-posture.md).
-
-## Credentials
-
-Prefer short-lived repository-scoped credentials and least privilege. Reduce exposure with sandbox deny paths, environment hygiene and semantic policy such as denying `gh auth token` or direct credential-file reads.
-
-However, the security invariant is not "the agent can never observe a credential." The stronger invariant is:
-
-> Credential compromise must not imply unrestricted repository or organization authority.
-
-Contain compromise with narrow GitHub App/IAM permissions, short lifetime, server-side branch/ruleset enforcement, audit and revocation. Production credentials unrelated to coding work should normally be absent from agent Pods.
-
-## Sandbox
-
-The sandbox should bound ordinary filesystem, process and network capability and reduce secret exposure. It is a defense layer, not the sole authority boundary. Use vendor-native credential masking when it is reliable and convenient, but do not add privileged broker infrastructure solely to recreate masking on vendors that do not provide it.
-
-## Network
-
-Network controls should match the deployment threat model. Default-deny egress is valuable in environments with internal services or cloud metadata exposure, but native `git` / `gh` access to GitHub may be intentionally allowed. Where network access is broad, compensate with least-privilege credentials and strong server-side SCM policy.
-
-## Git, shell and SCM publication
-
-Routine local feature-branch work can be autonomous, but **direct agent-issued remote publication visible at the hook boundary** is deliberately narrower than arbitrary shell access.
-
-Only these direct Git push shapes are autonomous:
+Direct autonomous Git publication is intentionally narrow:
 
 ```bash
 git push
 git push --set-upstream origin HEAD
 ```
 
-The SCM semantic validator requires `READY` posture, checks that the current branch is not the GitHub-reported default branch, confirms `origin` still points at the checked repository, and verifies the expected upstream for plain `git push`. Arbitrary direct remotes, refspecs, tags, delete/force forms and configuration overrides are outside the autonomous path.
+The validator confirms `READY` posture, a named non-default current branch, the checked `origin`, and expected upstream semantics. Force push is denied, including valued `--force-with-lease=<ref>` forms. Autonomous `gh pr create` cannot override repository/head/base and requires the current branch to be published with upstream `origin/<current-branch>`.
 
-Direct `gh pr create` cannot override repository, head branch or base branch in the autonomous path. Compound shell syntax such as `&&`, `||`, `;`, pipes, redirection, newlines and command substitution is also not autonomously allowlisted, because prefix regexes can otherwise misclassify a later mutation as read-only. See [DL-013](decisions/DL-013-canonical-scm-publication.md).
+Compound shell syntax is outside the autonomous allowlist. For repository-authority enforcement, remote SCM mutation is conservatively detected anywhere in the observed command so `RESTRICTED` cannot be bypassed with a chain such as `git status && git push`.
 
-This semantic contract does **not** establish that an allowed executable cannot perform a secondary SCM or network operation internally. The hook is evidence for the direct-action claim only. Critical repository authority must remain bounded by IAM/SCM scope and authoritative GitHub-side rules even when nested repository-controlled code bypasses local semantic visibility. See [DL-016](decisions/DL-016-semantic-policy-is-not-complete-mediation.md).
+## Control-plane publication review
 
-`RESTRICTED` permits local development but blocks direct remote publication through the harness. `BLOCKED` denies mutations observable at the hook boundary. GitHub server-side rules remain authoritative even if the local validator, nested code, or credential is compromised.
+Local control-plane files are not the production trust anchor, but changes to them still require explicit review before publication. Edit-time path rules are defense in depth; the path-independent assurance point is the committed publication diff.
 
-## Hook failure semantics
+Before canonical push or autonomous PR creation, the harness evaluates changed paths relative to `origin/<default-branch>...HEAD`. Protected paths include vendor hook configuration, `.agent-harness/`, CI workflows, harness/posture/policy/launcher implementation, and `AGENTS.md`. If protected paths changed, the result is approval-class `control-plane-publication`. Failure to establish the comparison fails closed.
 
-Hooks provide semantic policy but their failure behavior varies by vendor/version. A timeout/crash/malformed hook output must not be able to defeat IAM scope or server-side GitHub protections. Repository posture is fail-fast/context at SessionStart and enforced again at PreToolUse; it is not a replacement for GitHub-side controls. Likewise, hooks are not assumed to observe every nested process spawned by an allowed command.
+This protects the review invariant regardless of whether a change was introduced by Write/Edit, `apply_patch`, Git restore/checkout, a repository script, or another local execution path. Production execution authority remains the read-only trusted harness root.
 
-## Audit
+## Credential compromise containment
 
-Capture task/session/turn IDs, trusted expected repository, runtime/version, policy version, repository posture and check results, tool/action, semantic validation result, allow/deny/ask decision, approvals, execution outcome, commit/PR/CI identifiers, and sandbox/network denials. Do not log raw secrets. Audit events describe what the harness observed; absence of a hook event is not evidence that no nested side effect occurred.
+Credential confidentiality is desirable but not the only security invariant. Allowed repository code may be able to observe or misuse runtime authority even when direct extraction is denied.
+
+The architecture therefore treats credential compromise as a possible failure mode and contains it with short-lived, repository-scoped, least-privilege credentials plus authoritative GitHub-side rules. The default deployment remains one Pod / one agent container; an SCM broker/sidecar is not added solely to hide credentials.
+
+## Completion assurance
+
+Completion is evidence-based, not model-asserted. SessionStart records repository root, `HEAD`, and exact porcelain worktree state including untracked files. Stop compares current state with that baseline.
+
+- unchanged state is deterministic evidence for a read-only session and does not require delivery-specific feature-branch/upstream predicates;
+- changed state runs the full deterministic delivery completion gate;
+- missing, invalid, or unverifiable baseline never implies read-only and also runs the full gate.
+
+This keeps review/inspection sessions usable while preserving fail-closed delivery assurance for changed repository state.
+
+## Responsibility split
+
+The intended authority split is:
+
+- trusted launcher: task identity and trusted posture-mode intent;
+- trusted harness root: policy/evaluator implementation and trusted baseline files;
+- repository overlay: application-specific strengthening requirements only;
+- semantic hooks: direct observed action classification and lifecycle integration;
+- sandbox/container: local capability reduction and workload isolation;
+- IAM/SCM credentials: compromise blast-radius containment;
+- GitHub Rulesets/branch protection: authoritative remote repository enforcement;
+- deterministic tests/gates: conformance evidence for defined claims;
+- human/agent Model Review: discovery of unknown gaps not represented by existing assurance rules.
+
+No single layer is described as complete security enforcement.
+
+## Failure semantics
+
+Security-critical evaluation errors fail closed where the runtime permits it. `unknown` remains distinct from `fail`: unavailable external evidence is never silently promoted to `pass`. A missing optional repository overlay is valid because the trusted baseline remains effective; malformed explicit policy is a control-plane failure.
+
+## RAEM interpretation
+
+This implementation separates claims from mechanisms and evidence. Model Review has already discovered several gaps: worktree-resident verifier self-modification, hook overclaiming of complete mediation, approval bypass of `BLOCKED`, incomplete SCM state binding, repository-policy masking, edit-path-only control-plane review, and read-only Stop failures. Stable findings were generalized into decisions and deterministic regression tests.
+
+A notable example occurred after DL-019: the first publication-diff implementation incorrectly normalized `.github/...` and the new deterministic regression test failed in CI. The defect was corrected before merge. Reviews improved the model; assurance then exposed a concrete refinement defect.
 
 ---
 
-[← Design Principles](02-design-principles.md) | [日本語](ja/03-security-model.md) | [Next: Adoption Guide →](04-adoption-guide.md)
+[← Design Principles](02-design-principles.md) | [日本語](ja/03-security-model.md) | [Adoption Guide →](04-adoption-guide.md)
