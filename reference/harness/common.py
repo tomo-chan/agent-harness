@@ -38,10 +38,6 @@ READ_ONLY_COMMAND_RE = re.compile(
     r"(?i)^\s*(?:pwd|ls|find|rg|grep|cat|head|tail|wc|stat|file|tree|git\s+(?:status|diff|log|show|branch|rev-parse|worktree\s+list)\b|gh\s+pr\s+(?:view|status|checks)\b)"
 )
 MUTATING_TOOLS = {"write", "edit", "multi_edit", "apply_patch"}
-CANONICAL_PUSH_FORMS = {
-    ("git", "push"),
-    ("git", "push", "--set-upstream", "origin", "HEAD"),
-}
 CONTROL_PLANE_PREFIXES = (
     ".agent-harness/",
     ".claude/",
@@ -251,11 +247,35 @@ def _current_branch(cwd: Path, rule: str) -> tuple[str | None, Decision | None]:
 
 
 def _checked_origin(cwd: Path, report, rule: str) -> Decision | None:
-    """Ensure ``origin`` still names the repository verified by posture checking."""
+    """Ensure the fetch URL for ``origin`` still names the checked repository."""
     remote, error = _run_git(cwd, ["remote", "get-url", "origin"])
     remote_repo = parse_github_repository(remote or "") if remote else None
     if error or not remote_repo or remote_repo != report.repository:
         return Decision("deny", "origin no longer matches the checked repository", rule)
+    return None
+
+
+def _checked_push_destination(cwd: Path, report, rule: str) -> Decision | None:
+    """Ensure the effective ``origin`` push URL names only the checked repository.
+
+    Explicitly naming ``origin`` in the command is insufficient because
+    ``remote.origin.pushurl`` and Git URL rewrite rules can redirect a push. The
+    validator therefore resolves the effective push URL through Git itself and
+    requires exactly one destination that parses to the checked GitHub
+    repository. Mirror mode is also rejected because it changes ref semantics.
+    """
+    urls, error = _run_git(cwd, ["remote", "get-url", "--push", "--all", "origin"])
+    if error or not urls:
+        return Decision("deny", f"cannot determine effective origin push URL: {error or 'missing URL'}", rule)
+    push_urls = [line.strip() for line in urls.splitlines() if line.strip()]
+    if len(push_urls) != 1:
+        return Decision("deny", "canonical push requires exactly one effective origin push URL", rule)
+    push_repo = parse_github_repository(push_urls[0])
+    if push_repo != report.repository:
+        return Decision("deny", "effective origin push URL does not match the checked repository", rule)
+    mirror, _ = _run_git(cwd, ["config", "--bool", "--get", "remote.origin.mirror"])
+    if mirror and mirror.lower() == "true":
+        return Decision("deny", "remote.origin.mirror is incompatible with canonical publication", rule)
     return None
 
 
@@ -313,20 +333,18 @@ def _control_plane_publication_decision(cwd: Path, report) -> Decision | None:
 
 
 def _validate_canonical_push(raw: dict[str, Any], action: dict[str, Any], report) -> Decision | None:
-    """Validate the direct autonomous Git publication contract.
+    """Validate explicit autonomous Git publication semantics.
 
-    A permitted push must use one of the two canonical command shapes, run from
-    a non-default named branch, target the checked ``origin``, use the expected
-    upstream semantics, and pass control-plane publication review.
+    A permitted push explicitly names ``origin`` and the exact destination ref,
+    then validates the checked fetch identity, effective push URL, branch,
+    upstream lifecycle, and control-plane publication evidence. This removes
+    dependence on ``push.default``, ``pushRemote``, implicit refspecs, or a
+    redirecting ``pushurl`` from the autonomous contract.
     """
     command = _command(action)
     tokens = _shell_tokens(command)
-    if not tokens or tuple(tokens) not in CANONICAL_PUSH_FORMS:
-        return Decision(
-            "deny",
-            "autonomous push must use exactly `git push` or `git push --set-upstream origin HEAD`",
-            "canonical-git-push",
-        )
+    if not tokens or tokens[:2] != ["git", "push"]:
+        return Decision("deny", "invalid canonical push command", "canonical-git-push")
     if report is None or report.state != "READY":
         reason = report.summary() if report is not None else "repository security posture is unavailable"
         return Decision("deny", reason, "repository-posture")
@@ -339,23 +357,37 @@ def _validate_canonical_push(raw: dict[str, Any], action: dict[str, Any], report
     if branch == report.default_branch:
         return Decision("deny", f"direct push to default branch {branch} is prohibited", "canonical-git-push")
 
+    refspec = f"HEAD:refs/heads/{branch}"
+    normal_form = ("git", "push", "origin", refspec)
+    first_form = ("git", "push", "--set-upstream", "origin", refspec)
+    form = tuple(tokens)
+    if form not in {normal_form, first_form}:
+        return Decision(
+            "deny",
+            f"autonomous push must target exactly origin {refspec}, with --set-upstream only for first publication",
+            "canonical-git-push",
+        )
+
     denied = _checked_origin(cwd, report, "canonical-git-push")
+    if denied:
+        return denied
+    denied = _checked_push_destination(cwd, report, "canonical-git-push")
     if denied:
         return denied
 
     upstream, upstream_error = _run_git(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
-    if tuple(tokens) == ("git", "push"):
-        expected = f"origin/{branch}"
-        if upstream_error or upstream != expected:
+    expected_upstream = f"origin/{branch}"
+    if form == normal_form:
+        if upstream_error or upstream != expected_upstream:
             return Decision(
                 "deny",
-                f"canonical git push requires upstream {expected}; use `git push --set-upstream origin HEAD` for first publish",
+                f"canonical push requires upstream {expected_upstream}; use the canonical --set-upstream form for first publish",
                 "canonical-git-push",
             )
     elif upstream is not None and upstream_error is None:
         return Decision(
             "deny",
-            "`git push --set-upstream origin HEAD` is only for first publication; an upstream already exists, so use `git push`",
+            "canonical --set-upstream push is only for first publication; an upstream already exists",
             "canonical-git-push",
         )
 
