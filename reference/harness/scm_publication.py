@@ -10,12 +10,17 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Sequence
 
-from reference.harness import authority
-from reference.hooks.policy_engine import Decision
-from reference.posture.checker import parse_github_repository
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from reference.harness import authority  # noqa: E402
+from reference.hooks.policy_engine import Decision  # noqa: E402
+from reference.posture.checker import parse_github_repository  # noqa: E402
 
 
 def _command(action: dict[str, Any]) -> str:
