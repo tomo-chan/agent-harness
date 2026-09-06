@@ -38,13 +38,13 @@
     {
       "id": "allow-git-read",
       "tool_regex": "^(exec|Bash)$",
-      "command_regex": "^git\\s+(status|diff|log|show|branch|rev-parse|worktree\\s+list)\\b",
+      "command_regex": "^\\s*git\\s+(?:status|diff|log|show|branch|rev-parse|worktree\\s+list)\\b[^;&|<>\\n]*$",
       "reason": "read-only Git inspection"
     },
     {
       "id": "allow-tests",
       "tool_regex": "^(exec|Bash)$",
-      "command_regex": "^(pytest|ruff|mypy|npm\\s+test|go\\s+test)\\b",
+      "command_regex": "^\\s*(?:pytest|ruff|mypy|npm\\s+test|go\\s+test)\\b[^;&|<>\\n]*$",
       "reason": "verification command"
     },
     {
@@ -62,7 +62,7 @@
     {
       "id": "allow-pr-read",
       "tool_regex": "^(exec|Bash)$",
-      "command_regex": "^gh\\s+pr\\s+(view|status|checks)\\b",
+      "command_regex": "^\\s*gh\\s+pr\\s+(?:view|status|checks)\\b[^;&|<>\\n]*$",
       "reason": "read-only pull-request inspection"
     }
   ]
