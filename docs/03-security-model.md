@@ -35,7 +35,9 @@ SessionStart evaluates repository identity, GitHub metadata, and effective rules
 - `RESTRICTED`: local development may continue, but remote SCM mutation is denied;
 - `BLOCKED`: mutation is denied.
 
-Authority state precedes approval. `BLOCKED` cannot be weakened by native prompts or trusted external approval. `RESTRICTED` cannot be used to authorize remote SCM mutation through an approval path. Cached posture is refreshed after TTL expiry or repository-root change.
+Authority state precedes approval. `BLOCKED` cannot be weakened by native prompts or trusted external approval. `RESTRICTED` cannot be used to authorize remote SCM mutation through an approval path.
+
+SessionStart may cache the posture result for context and performance, but that cache is not authority-bearing because repository code running under the same operating-system identity may be able to rewrite local state. Mutation enforcement therefore re-evaluates posture from current Git and GitHub evidence before applying authority-state decisions.
 
 ## Direct-action semantic policy
 
@@ -56,7 +58,7 @@ Compound shell syntax is outside the autonomous allowlist. For repository-author
 
 Local control-plane files are not the production trust anchor, but changes to them still require explicit review before publication. Edit-time path rules are defense in depth; the path-independent assurance point is the committed publication diff.
 
-Before canonical push or autonomous PR creation, the harness evaluates changed paths relative to `origin/<default-branch>...HEAD`. Protected paths include vendor hook configuration, `.agent-harness/`, CI workflows, harness/posture/policy/launcher implementation, and `AGENTS.md`. If protected paths changed, the result is approval-class `control-plane-publication`. Failure to establish the comparison fails closed.
+Before canonical push or autonomous PR creation, the harness evaluates changed paths relative to `origin/<default-branch>...HEAD`. Protected paths include vendor hook configuration, `.agent-harness/`, CI workflows, harness/posture/policy/launcher implementation, assurance scripts, deployment references, and `AGENTS.md`. If protected paths changed, the result is approval-class `control-plane-publication`. Failure to establish the comparison fails closed.
 
 This protects the review invariant regardless of whether a change was introduced by Write/Edit, `apply_patch`, Git restore/checkout, a repository script, or another local execution path. Production execution authority remains the read-only trusted harness root.
 
@@ -68,13 +70,11 @@ The architecture therefore treats credential compromise as a possible failure mo
 
 ## Completion assurance
 
-Completion is evidence-based, not model-asserted. SessionStart records repository root, `HEAD`, and exact porcelain worktree state including untracked files. Stop compares current state with that baseline.
+Completion is evidence-based, not model-asserted, and it does not trust a writable SessionStart baseline as independent evidence.
 
-- unchanged state is deterministic evidence for a read-only session and does not require delivery-specific feature-branch/upstream predicates;
-- changed state runs the full deterministic delivery completion gate;
-- missing, invalid, or unverifiable baseline never implies read-only and also runs the full gate.
+At Stop, the harness freshly evaluates repository posture and current Git state. It skips the delivery-specific completion gate only when the current branch is the checked default branch, the worktree including untracked files is clean, and local `HEAD` exactly equals `origin/<checked-default-branch>`.
 
-This keeps review/inspection sessions usable while preserving fail-closed delivery assurance for changed repository state.
+Every feature-branch, dirty, diverged, `BLOCKED`, or otherwise unverifiable state runs the full deterministic delivery completion gate. This keeps clean default-branch review/inspection sessions usable without allowing repository code to forge the evidence that selects the read-only exemption. The claim concerns repository delivery state only and does not prove that the session produced no external-system side effects.
 
 ## Responsibility split
 
@@ -94,13 +94,13 @@ No single layer is described as complete security enforcement.
 
 ## Failure semantics
 
-Security-critical evaluation errors fail closed where the runtime permits it. `unknown` remains distinct from `fail`: unavailable external evidence is never silently promoted to `pass`. A missing optional repository overlay is valid because the trusted baseline remains effective; malformed explicit policy is a control-plane failure.
+Security-critical evaluation errors fail closed where the runtime permits it. `unknown` remains distinct from `fail`: unavailable external evidence is never silently promoted to `pass`. A missing optional repository overlay is valid because the trusted baseline remains effective; malformed explicit policy is a control-plane failure. Writable local caches may support context or performance but must not become authoritative inputs to mutation or completion decisions.
 
 ## RAEM interpretation
 
-This implementation separates claims from mechanisms and evidence. Model Review has already discovered several gaps: worktree-resident verifier self-modification, hook overclaiming of complete mediation, approval bypass of `BLOCKED`, incomplete SCM state binding, repository-policy masking, edit-path-only control-plane review, and read-only Stop failures. Stable findings were generalized into decisions and deterministic regression tests.
+This implementation separates claims from mechanisms and evidence. Model Review has already discovered several gaps: worktree-resident verifier self-modification, hook overclaiming of complete mediation, approval bypass of `BLOCKED`, incomplete SCM state binding, repository-policy masking, edit-path-only control-plane review, read-only Stop failures, and writable local caches being treated as assurance evidence. Stable findings were generalized into decisions and deterministic regression tests.
 
-A notable example occurred after DL-019: the first publication-diff implementation incorrectly normalized `.github/...` and the new deterministic regression test failed in CI. The defect was corrected before merge. Reviews improved the model; assurance then exposed a concrete refinement defect.
+A notable example occurred after DL-019: the first publication-diff implementation incorrectly normalized `.github/...` and the new deterministic regression test failed in CI. The defect was corrected before merge. Later model review found that the first DL-020 refinement stored its completion evidence in agent-writable local state; the design was evolved again so mutation authority and completion exemptions are derived from freshly established evidence instead. Reviews improve the model; assurance establishes only the claims supported by that evidence.
 
 ---
 
