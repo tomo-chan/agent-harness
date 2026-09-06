@@ -54,6 +54,33 @@ def test_blocked_denies_mutation(monkeypatch):
     assert result.decision == "deny"
 
 
+def test_blocked_overrides_ask_for_mutation(monkeypatch):
+    monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("BLOCKED"))
+    raw = _raw("gh pr merge 1 --squash")
+    action = common.normalize(raw, "claude")
+    result = common._enforce_repository_posture(raw, action, Decision("ask", "approval required", "scm-merge-release"))
+    assert result.decision == "deny"
+    assert result.rule == "repository-posture"
+
+
+def test_blocked_overrides_externally_approved_mutation(monkeypatch):
+    monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("BLOCKED"))
+    raw = _raw("gh pr merge 1 --squash")
+    action = common.normalize(raw, "claude")
+    approved = Decision("allow", "externally approved rule scm-merge-release", "scm-merge-release")
+    result = common._enforce_repository_posture(raw, action, approved)
+    assert result.decision == "deny"
+    assert result.rule == "repository-posture"
+
+
+def test_blocked_does_not_change_read_only_decision(monkeypatch):
+    monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("BLOCKED"))
+    raw = _raw("git status")
+    action = common.normalize(raw, "claude")
+    result = common._enforce_repository_posture(raw, action, Decision("allow", "ok", "read-only-git"))
+    assert result.decision == "allow"
+
+
 def test_compound_shell_cannot_hide_push(monkeypatch):
     monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("RESTRICTED"))
     raw = _raw("git status && git push")
