@@ -2,7 +2,7 @@
 
 ## 状態
 
-実装移植と初回レビューを完了。PR #1 の `common.py` に混在していたリポジトリ権威とSCM公開意味論を分離し、S2は権威状態の導出と適用順序だけを担当する形へ具体化した。
+実装移植とレビューを完了。PR #1 の `common.py` に混在していたリポジトリ権威とSCM公開意味論を分離し、S2は権威状態の導出と適用順序だけを担当する形へ具体化した。
 
 ## 主張
 
@@ -66,6 +66,7 @@
 - `BLOCKED` は変更操作を `deny` へ上書きし、通常の `ask` / approval で弱化できない。
 - `RESTRICTED` は、後続スライスが `restricted_operation=True` と分類した操作を `deny` する。
 - S2自身はGit pushやPR作成等のコマンド意味論を判定しない。
+- 実際の `pre_tool_use_adapter.py` は、方針評価後にS2の権威ゲートを必ず通る。権威ゲートを単なる未使用ヘルパーとして残さない。
 
 ## 具体化
 
@@ -81,6 +82,14 @@
 - cacheはread-only context用途に限る。
 - `BLOCKED` / `RESTRICTED` を通常承認より先に適用する。
 - SCM意味論を持たず、後続スライスから `mutation` / `restricted_operation` を受け取る。
+
+### `reference/hooks/pre_tool_use_adapter.py`
+
+S1の方針評価とS2の権威適用を実際のhook実行経路で接続する。
+
+- 方針評価結果をS2権威ゲートへ渡す。
+- S2の一般的な変更操作分類を使い、`BLOCKED` を方針の `allow` / `ask` より優先する。
+- S3導入前は `restricted_operation=False` とし、RESTRICTED操作の意味論は持ち込まない。
 
 ### `reference/launcher/preflight.py`
 
@@ -112,6 +121,12 @@ S1がtrusted root内へ束縛する最低基準の参照実体。ファイルの
 - `RESTRICTED` の操作分類を後続スライスから受け取れる。
 - 権威取得不能時、restricted operationをfail-closedで拒否する。
 
+### `reference/hooks/tests/test_policy_engine.py`
+
+- 実際の `pre_tool_use_adapter.evaluate()` が方針評価の後にS2権威ゲートを呼ぶ。
+- 方針が `ask` でも権威ゲートが `deny` へ上書きできる。
+- S2時点では `restricted_operation=False` でS3境界を維持する。
+
 ## 具体化で判明した境界修正
 
 ### S2 → S1: trusted minimum baselineの生成元
@@ -142,6 +157,12 @@ S2 authority gate
 
 これにより「どの操作がremote SCM mutationか」というS3の知識をS2から除去した。
 
+### 権威ゲートの未接続
+
+最初のS2レビューでは `authority.py` 単体の適合だけを確認し、実際の `pre_tool_use_adapter.py` が権威ゲートを呼んでいないことを見落としていた。この状態では「権威判断が通常承認より先に適用される」という主張は実行経路上では成立しない。
+
+`pre_tool_use_adapter.evaluate()` をS2権威ゲートへ接続し、統合テストで方針の `ask` が権威の `deny` に上書きされることを固定した。これは「実装が存在する」ことと「保証経路に組み込まれている」ことを分けてレビューする必要性を示す指摘でもある。
+
 ## レビュー結果
 
 - [x] 権威レビュー
@@ -157,12 +178,13 @@ S2 authority gate
 - [x] 迂回レビュー
   - writable cacheから権威を復元しない。
   - approvalはBLOCKEDを上書きできない。
+  - 権威ゲートが実際のhook経路から迂回されていないことを統合テストで確認する。
 - [x] 責任分担レビュー
   - trusted入力の確立=S1、権威導出/適用=S2、操作意味論=S3へ分離した。
 - [x] 保証欠落レビュー
   - SCM publication、control-plane publication、completion、deploymentを後続へ委譲した。
 - [x] 実装適合レビュー
-  - PR #1の混在実装を保証責務に沿って `authority.py` へ分離した。
+  - PR #1の混在実装を保証責務に沿って `authority.py` へ分離し、実際のadapter実行経路へ接続した。
 
 ## 残存リスクと対象外
 
@@ -173,6 +195,6 @@ S2 authority gate
 
 ## 収束判定
 
-S2の具体化からS1へ2件の権威境界フィードバックを返し、S1側で修正済み。PR #1の `common.py` からS2の責務も分離した。
+S2の具体化からS1へ2件の権威境界フィードバックを返し、S1側で修正済み。PR #1の `common.py` からS2の責務も分離した。さらに再レビューで権威ゲートの実行経路未接続を発見し、adapter統合と決定的な回帰テストへ移した。
 
 現時点でS2内部に新たなマージ阻害指摘は残っていない。S3が `restricted_operation` を正しく分類すること、およびS6がS1のtrusted入力供給を成立させることを外部依存として、S2は収束状態とする。
