@@ -223,6 +223,20 @@ def _validate_push(
     return None
 
 
+def _has_pr_target_override(tokens: list[str]) -> bool:
+    """Return whether PR creation overrides repository, head, or base target."""
+    long_options = ("--repo", "--head", "--base")
+    short_options = ("-R", "-H", "-B")
+    for token in tokens[3:]:
+        if token in long_options or token in short_options:
+            return True
+        if any(token.startswith(f"{option}=") for option in long_options):
+            return True
+        if any(token.startswith(option) and token != option for option in short_options):
+            return True
+    return False
+
+
 def _validate_pr_create(
     raw: dict[str, Any], action: dict[str, Any], report: Any
 ) -> Decision | None:
@@ -231,8 +245,7 @@ def _validate_pr_create(
     tokens = _shell_tokens(command)
     if not tokens or tokens[:3] != ["gh", "pr", "create"]:
         return Decision("deny", "invalid PR creation command", "canonical-pr-create")
-    forbidden = {"--repo", "-R", "--head", "-H", "--base", "-B"}
-    if any(token in forbidden for token in tokens[3:]):
+    if _has_pr_target_override(tokens):
         return Decision(
             "deny",
             "autonomous `gh pr create` may not override repository, head branch, or base branch",
