@@ -183,13 +183,22 @@ def _validate_canonical_push(raw: dict[str, Any], action: dict[str, Any], report
     if error or not remote_repo or remote_repo != report.repository:
         return Decision("deny", "origin no longer matches the checked repository", "canonical-git-push")
 
+    upstream, upstream_error = _run_git(
+        cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]
+    )
     if tuple(tokens) == ("git", "push"):
-        upstream, error = _run_git(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
         expected = f"origin/{branch}"
-        if error or upstream != expected:
+        if upstream_error or upstream != expected:
             return Decision(
                 "deny",
                 f"canonical git push requires upstream {expected}; use `git push --set-upstream origin HEAD` for first publish",
+                "canonical-git-push",
+            )
+    else:
+        if upstream is not None and upstream_error is None:
+            return Decision(
+                "deny",
+                "`git push --set-upstream origin HEAD` is only for first publication; an upstream already exists, so use `git push`",
                 "canonical-git-push",
             )
     return None
