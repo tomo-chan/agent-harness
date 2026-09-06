@@ -21,6 +21,7 @@ Before making non-trivial changes, read:
 11. [DL-013: Canonical SCM publication](docs/decisions/DL-013-canonical-scm-publication.md)
 12. [DL-015: Trusted harness boundary](docs/decisions/DL-015-trusted-harness-boundary.md)
 13. [DL-016: Semantic policy is not complete mediation](docs/decisions/DL-016-semantic-policy-is-not-complete-mediation.md)
+14. [DL-017: Authority state precedes approval](docs/decisions/DL-017-authority-state-precedes-approval.md)
 
 ## Core invariants
 
@@ -36,7 +37,7 @@ Do not weaken these invariants without an explicit architectural decision:
 - Repository security posture is checked at SessionStart and revalidated before stale remote trust-boundary operations or after repository-root changes.
 - `pass`, `fail`, and `unknown` are distinct posture results; unavailable metadata must not silently become `pass`.
 - Missing posture configuration uses built-in `restricted` defaults; invalid explicit policy fails closed to `BLOCKED`.
-- `RESTRICTED` preserves local development but denies remote SCM mutation; `BLOCKED` denies mutation.
+- `RESTRICTED` preserves local development but denies remote SCM mutation; `BLOCKED` denies mutation and cannot be weakened by an ordinary approval path.
 - Direct autonomous remote publication visible to the harness uses canonical command shapes and semantic validation, not arbitrary shell/refspec parsing.
 - Critical external-system invariants remain enforced by least-privilege IAM/SCM authority and server-side policy even if local semantic policy is bypassed by nested code.
 - Compound shell syntax is outside the autonomous allowlist even when its first command is read-only.
@@ -95,13 +96,15 @@ When changing an English architecture document, update the corresponding Japanes
 - Prefer Python standard library for the small reference implementation unless an external dependency has clear architectural value.
 - Keep policy and posture decisions deterministic and testable.
 - Prefer structured data over parsing free-form model prose.
+- Python production modules, top-level functions, classes, and methods in the reference implementation must have `docstring`s. A useful docstring explains the callable or type contract rather than merely restating its name. Security-sensitive code must document relevant assumptions, authority/trust boundaries, failure semantics, or the scope of the guarantee when those details affect correct review. Descriptively named test functions do not require individual docstrings.
 - If a required operation can be expressed as a narrow canonical command/argv contract, prefer that over increasingly complex shell regex parsing.
 - Treat `&&`, `||`, `;`, pipes, redirection, newlines and command substitution as outside autonomous command allowlists unless a dedicated parser/validator explicitly owns the semantics.
 - Direct autonomous Git publication visible at the hook boundary is limited to `git push` and `git push --set-upstream origin HEAD`; validate repository, current branch, default branch, `origin` and upstream before allowing it.
-- Autonomous `gh pr create` must not override repository, head branch or base branch.
+- `git push --set-upstream origin HEAD` is only for first publication when no upstream exists; subsequent publication uses `git push` with upstream `origin/<current-branch>`.
+- Autonomous `gh pr create` must not override repository, head branch or base branch and must be bound to the checked repository, current non-default branch, and published upstream `origin/<current-branch>`.
 - Do not interpret an allowed test/build/tool invocation as proof that every nested subprocess or network side effect was mediated by hooks.
 - For invariants that must survive nested code execution, refine enforcement to sandbox/workload capability controls, IAM/SCM scope, network policy where required, and authoritative server-side rules.
-- Deny rules take precedence over ask/allow rules.
+- Deny rules take precedence over ask/allow rules. Repository authority states such as `BLOCKED` take precedence over ordinary approval decisions.
 - Security-critical errors fail closed wherever the runtime permits it.
 - Never embed real secrets, tokens, account identifiers, private endpoints, or production credentials in examples/tests.
 - Deny obvious credential extraction (`gh auth token`, direct reads of known credential stores) as defense in depth, but rely on IAM/SCM scope and server-side rules for compromise containment.
@@ -117,7 +120,7 @@ For harness changes, run:
 python -m pytest reference/hooks/tests reference/harness/tests reference/posture/tests -q
 ```
 
-Preserve regression coverage for safe read-only Git, force-push denial, approval-required actions, credential extraction denial, control-plane file protection, trusted harness root resolution, repository posture state derivation, missing/mismatched trusted repository identity, repository-local mode not weakening trusted minimum, `RESTRICTED` remote-mutation denial, `BLOCKED` mutation denial, compound-shell bypass attempts, non-canonical direct push/refspec rejection, default-branch direct push rejection, origin/upstream mismatch and direct PR repository/head/base override rejection.
+Preserve regression coverage for safe read-only Git, force-push denial, approval-required actions, credential extraction denial, control-plane file protection, trusted harness root resolution, repository posture state derivation, missing/mismatched trusted repository identity, repository-local mode not weakening trusted minimum, `RESTRICTED` remote-mutation denial, `BLOCKED` mutation denial and approval precedence, compound-shell bypass attempts, non-canonical direct push/refspec rejection, default-branch direct push rejection, origin/upstream mismatch, first-publication semantics, PR repository/head/base override rejection, PR current-Git-state binding, and required production-code docstrings.
 
 ## Decision log requirement
 
@@ -152,4 +155,4 @@ Do not force-push or directly push to a protected default branch. Do not merge a
 
 ## Definition of done
 
-A change is complete only when implementation/documentation matches scope, relevant tests pass, security invariants remain intact, English/Japanese docs are synchronized where applicable, Git state contains only intended changes, no credentials/sensitive artifacts were introduced, and vendor-sensitive decisions have assumptions/revisit triggers documented.
+A change is complete only when implementation/documentation matches scope, relevant tests pass, security invariants remain intact, required production-code docstrings describe review-relevant contracts, English/Japanese docs are synchronized where applicable, Git state contains only intended changes, no credentials/sensitive artifacts were introduced, and vendor-sensitive decisions have assumptions/revisit triggers documented.
