@@ -2,96 +2,106 @@
 
 # セキュリティモデル
 
-## Threat Model
+## 脅威モデル
 
-Agent が Source / Issue / Web / Tool Output の悪意ある指示、Hallucinated / Destructive Command、Compromised Dependency、Credential 誤露出、Over-privileged MCP、誤った Repository / Worktree、Shell Command Ambiguity、Runaway Retry、Compromised Local Policy、Cloud Metadata / Internal Endpoint へのアクセス試行に遭遇する前提で設計します。
+エージェントは、ソースコード、課題、Web、ツール出力に含まれる悪意ある指示、誤生成された破壊的コマンド、侵害された依存関係、認証情報の誤露出、過剰な権限を持つMCPツール、誤ったリポジトリやワークツリーの選択、シェルコマンドの曖昧性、無制限な再試行、侵害されたローカル方針コード、クラウドのメタデータや内部制御系へのアクセス試行に遭遇し得るものとする。
 
-さらに **Credential Compromise は起こり得る**ものとします。GitHub Credential が Agent から見えてしまっても、被害範囲を限定できる構造が必要です。
+さらに、**認証情報の侵害は起こり得る**ものとする。GitHubの認証情報がエージェントから見えてしまっても、被害範囲を限定できる構造が必要である。
 
-## Defense in Depth と責務分離
+また、許可されたコマンドが、リポジトリ管理下の任意コードを内部で実行し得ることも前提とする。フックが `pytest`、`npm test` などの外側の呼び出しを観測できても、そのコードが内部で起動するすべての子プロセス、ネットワーク要求、二次的なSCM操作まで観測できるとは限らない。
+
+## 防御の多層化と責務分離
 
 ```mermaid
 flowchart TD
-    T[Trusted Task Identity] --> SS[SessionStart Posture Check<br/>Repository / Control を検証]
-    M[Model Behavior] --> H[Semantic Policy / Hooks<br/>Contextual Risk を分類]
+    T[信頼されたタスク識別情報] --> SS[SessionStart 時の状態検査<br/>リポジトリと保護設定を確認]
+    M[モデルの振る舞い] --> H[意味論的方針 / フック<br/>観測可能な直接操作を分類]
     SS --> H
-    H --> SV[SCM Semantic Validator<br/>Canonical Publication のみ]
-    H --> P[Permissions / Rules<br/>Routine Tool Authority を制限]
+    H --> SV[SCM意味論検証器<br/>正規形の直接公開のみ]
+    H --> P[権限 / 規則<br/>通常操作の権限を制限]
     SV --> P
-    P --> S[OS Sandbox<br/>Filesystem / Process / Network Capability を低減]
-    S --> C[Single Hardened Container / Pod<br/>Host / Resource を保護]
-    C --> I[IAM / SCM Authorization<br/>Credential Compromise を封じ込め]
-    I --> R[GitHub Rulesets / Server-side Policy<br/>Authoritative Resource Protection]
+    P --> S[OSサンドボックス<br/>ファイル・プロセス・通信能力を制限]
+    S --> C[単一の強化コンテナ / Pod<br/>ホストと資源を保護]
+    C --> I[IAM / SCM認可<br/>認証情報またはローカル方針の侵害を封じ込め]
+    I --> R[GitHubルールセット / サーバー側方針<br/>権威的な資源保護]
 ```
 
-単一レイヤーに全 Failure Mode を背負わせません。Sandbox の責務を「Credential が絶対に漏れないこと」にまで拡張せず、Hook に Authoritative Repository Identity や Server-side Branch Policy の責務を持たせません。
+単一の層にすべての故障形態を背負わせない。サンドボックスの責務を「認証情報が絶対に漏れないこと」にまで拡張せず、フックに権威的なリポジトリ識別、サーバー側ブランチ方針、任意の子プロセスに対する完全仲介の責務を持たせない。
 
-## Trusted Computing Base
+## 信頼計算基盤
 
-TCB は小さく保ちます。Baseline には Orchestrator / Trusted Launcher、Policy Engine、Posture Checker、SCM Semantic Validator、Sandbox Implementation、Workload Isolation、Credential Issuance / Authorization、External Server-side Policy が含まれます。Agent-generated Code と Model Reasoning は Untrusted です。
+信頼計算基盤は小さく保つ。基準構成には、オーケストレーター / 信頼された起動処理、信頼ルート上の方針エンジン、リポジトリ状態検査器、SCM意味論検証器、サンドボックス実装、ワークロード隔離、認証情報の発行・認可機構、外部のサーバー側方針を含む。エージェントが生成したコードとモデルの推論は信頼しない。
 
-Credential を隠すだけのための Broker / Sidecar は Default TCB から除外します。Trusted Component と Operational State を増やすためです。
+本番環境の方針、状態検査、SCM検証、完了判定の実装は、エージェントが変更可能なワークスペースの外にある `AGENT_HARNESS_TRUSTED_ROOT` から実行する。リポジトリ内の同等ファイルは参照実装・開発用であり、本番環境の信頼の起点にはしない。詳細は [DL-015](decisions/DL-015-trusted-harness-boundary.md) を参照する。
 
-## Trusted Task Identity
+認証情報を隠すことだけを目的とした仲介サービスやサイドカーは、標準の信頼計算基盤には含めない。権限を持つコードと運用状態を増やすためである。
 
-Repository は Task Identity の一部です。Trusted Launcher が `AGENT_HARNESS_EXPECTED_REPOSITORY` を設定し、Repository-local Config はこれを Authoritative に置き換えられません。Trusted Identity 未設定は `UNKNOWN` となり、Default Minimum の `restricted` では Remote Publish を許可しません。不一致は `BLOCKED` です。
+## 信頼されたタスク識別情報
 
-Trusted Launcher は `AGENT_HARNESS_MINIMUM_POSTURE_MODE` も所有し、Default は `restricted` とします。Repository-local `mode: warn` だけではこの Minimum を弱められません。Repository 自身が、自身への Publish 可否 Policy を弱められないようにするためです。
+リポジトリはタスク識別情報の一部である。信頼された起動処理が `AGENT_HARNESS_EXPECTED_REPOSITORY` を設定し、リポジトリ内の設定はこれを権威的に置き換えられない。信頼された識別情報が未設定の場合は `UNKNOWN` とし、標準の最小状態 `restricted` では遠隔公開を許可しない。不一致は `BLOCKED` とする。
 
-## Repository Posture
+信頼された起動処理は `AGENT_HARNESS_MINIMUM_POSTURE_MODE` も所有し、標準値を `restricted` とする。リポジトリ内の `mode: warn` だけではこの最小状態を弱められない。リポジトリ自身が、自身への公開可否を決める方針を弱体化できないようにするためである。
 
-SessionStart で Trusted Repository Identity、Default Branch、Required Pull Request、Force-push Prevention、Required Status Checks 等を GitHub から取得可能な範囲で検証します。
+## リポジトリ保護状態
 
-Check は3値です。
+SessionStartで、信頼されたリポジトリ識別、既定ブランチ、プルリクエスト必須、強制プッシュ防止、必須状態検査など、公開方針が依存する条件をGitHubから取得可能な範囲で確認する。
 
-- `pass`: Control を確認済み
-- `fail`: Control が未達であることを確認
-- `unknown`: 現在確認不能
+検査結果は3値とする。
 
-`unknown` を勝手に `pass` に変換しません。Effective Posture Mode が block / restrict / warn を決定します。Trusted Repository Mismatch は Mode に関係なく `BLOCKED` です。詳細は [DL-012](decisions/DL-012-sessionstart-repository-posture.md) を参照してください。
+- `pass`: 制御が満たされていることを確認済み
+- `fail`: 制御が満たされていないことを確認済み
+- `unknown`: 現在は確認不能
 
-## Credential
+`unknown` を暗黙に `pass` へ変換しない。有効な保護状態の運用方式が、停止・制限・警告のいずれにするかを決める。信頼されたリポジトリ識別の不一致は運用方式に関係なく `BLOCKED` とする。詳細は [DL-012](decisions/DL-012-sessionstart-repository-posture.md) を参照する。
 
-Short-lived / Repository-scoped / Least-privilege Credential を優先します。Sandbox の deny path、Environment Hygiene、`gh auth token` や Credential File Read を拒否する Semantic Policy で露出を低減します。
+## 認証情報
 
-ただし Security Invariant は「Agent が Credential を絶対に観測できない」ではありません。
+短寿命・リポジトリ限定・最小権限の認証情報を優先する。サンドボックスの読み取り拒否、環境変数の衛生管理、`gh auth token` や既知の認証情報ファイル読み取りを拒否する意味論的方針によって露出を減らす。
 
-> Credential Compromise が unrestricted Repository / Organization Authority を意味してはいけない。
+ただし、セキュリティ上の不変条件は「エージェントが認証情報を絶対に観測できないこと」ではない。
 
-Narrow GitHub App / IAM Permission、短い Lifetime、Server-side Ruleset / Branch Protection、Audit / Revoke で Compromise を封じ込めます。Coding に不要な Production Credential は Agent Pod に置きません。
+> 認証情報が侵害されても、無制限のリポジトリ権限や組織権限を得られてはならない。
 
-## Sandbox
+限定されたGitHub App / IAM権限、短い有効期間、サーバー側のブランチ保護・ルールセット、監査、失効によって侵害を封じ込める。開発作業に不要な本番認証情報は、通常エージェントPodへ配置しない。
 
-Sandbox は通常の Filesystem / Process / Network Capability と Secret Exposure を狭めます。Defense Layer ではありますが、唯一の Authority Boundary ではありません。Vendor-native Credential Masking が安定して利用できる場合は追加 Hardening として使いますが、対応しない Vendor に同等機能を再現するためだけに Privileged Broker Infrastructure は追加しません。
+## サンドボックス
 
-## Network
+サンドボックスは通常のファイル、プロセス、ネットワーク能力と秘密情報への露出を制限する。防御層ではあるが、唯一の権限境界ではない。ベンダーが提供する認証情報の秘匿機能を安定して利用できる場合は追加防御として使用してよいが、対応しないベンダーに同等機能を再現することだけを目的に権限を持つ仲介基盤を追加しない。
 
-Network Control は Deployment Threat Model に合わせます。Internal Service や Cloud Metadata への露出がある環境では Default-deny Egress が有効です。一方で native `git` / `gh` から GitHub への通信は意図的に許可する場合があります。Network を広く許す場合は Least-privilege Credential と Strong Server-side SCM Policy で補完します。
+## ネットワーク
 
-## Git / Shell / SCM Publication
+ネットワーク制御は配備先の脅威モデルに合わせる。内部サービスやクラウドのメタデータへ到達可能な環境では、送信通信を既定拒否にすることが有効である。一方、標準の `git` / `gh` からGitHubへの通信は意図的に許可する場合がある。通信範囲を広く許可する場合は、最小権限の認証情報と強いサーバー側SCM方針で補完する。
 
-Feature Branch の Local Routine Work は自律化しやすくしますが、Remote Publication は Arbitrary Shell Access より狭くします。
+## Git・シェル・SCM公開
 
-Autonomous な Git Push は次の2形式だけです。
+機能ブランチ上の通常のローカル作業は自律化しやすくするが、**フック境界で観測できる、エージェントが直接発行した遠隔公開操作**は、任意のシェル操作より狭くする。
+
+自律実行を許可する直接のGit公開は次の2形式だけとする。
 
 ```bash
 git push
 git push --set-upstream origin HEAD
 ```
 
-SCM Semantic Validator は `READY` Posture、Current Branch が GitHub-reported Default Branch でないこと、`origin` が Checked Repository を指すこと、単純な `git push` では Upstream が期待値であることを確認します。Arbitrary Remote、Refspec、Tag、Delete / Force、Config Override は Autonomous Path 外です。
+SCM意味論検証器は、保護状態が `READY` であること、現在のブランチがGitHubから取得した既定ブランチではないこと、`origin` が検査済みのリポジトリを指していること、単純な `git push` では上流ブランチが期待値であることを確認する。任意の遠隔リポジトリ、参照指定、タグ、削除・強制形式、設定上書きは、直接の自律公開経路から外す。
 
-`gh pr create` では Repository / Head Branch / Base Branch の Override を禁止します。`&&`, `||`, `;`, Pipe, Redirection, Newline, Command Substitution 等の Compound Shell も Autonomous Allowlist 外です。Prefix Regex で先頭だけを見て Read-only と誤判定しないためです。詳細は [DL-013](decisions/DL-013-canonical-scm-publication.md) を参照してください。
+直接の `gh pr create` では、リポジトリ、作業元ブランチ、基準ブランチの上書きを禁止する。`&&`、`||`、`;`、パイプ、リダイレクト、改行、コマンド置換などを含む複合シェルも、自律許可対象外とする。先頭部分だけを正規表現で見て読み取り専用と誤判定することを防ぐためである。詳細は [DL-013](decisions/DL-013-canonical-scm-publication.md) を参照する。
 
-`RESTRICTED` では Local Development を許可しながら Remote Publication を deny、`BLOCKED` では Mutation を deny します。Local Validator や Credential が破られても、GitHub Server-side Rule が最終 Enforcement を担います。
+この意味論的契約は、許可された実行ファイルが内部で二次的なSCM操作やネットワーク操作を実行できないことまでは保証しない。フックが提供する根拠は、エージェントが直接発行した操作に対する主張の範囲に限る。リポジトリ管理下の子プロセスがローカルの意味論的可視性を迂回しても、重要なリポジトリ権限はIAM / SCM権限範囲と権威的なGitHub側規則によって制約され続けなければならない。詳細は [DL-016](decisions/DL-016-semantic-policy-is-not-complete-mediation.md) を参照する。
 
-## Hook Failure Semantics
+`RESTRICTED` ではローカル開発を許可しつつ、ハーネスが観測する直接の遠隔公開を拒否する。`BLOCKED` ではフック境界で観測可能な変更操作を拒否する。ローカル検証器、子プロセス、認証情報のいずれかが侵害されても、GitHubのサーバー側規則を最終的な権威的強制として残す。
 
-Hook は Semantic Policy に有効ですが Failure Behavior は Vendor / Version で異なります。Hook Timeout / Crash / Malformed Output が起きても IAM Scope / GitHub-side Protection を破れないようにします。SessionStart Posture Check は Fail-fast / Context、PreToolUse は Semantic Enforcement、GitHub-side Rule は Authoritative Enforcement という分担です。
+## フック障害時の意味
 
-## Audit
+フックは意味論的方針には有効だが、障害時の挙動はベンダーやバージョンによって異なる。フックの時間切れ、異常終了、不正な出力が起きても、IAMの権限範囲やGitHub側の保護を破れないようにする。SessionStartの保護状態検査は早期検出と文脈提供、PreToolUseは観測可能な直接操作の意味論的制御、GitHub側規則は権威的な強制という責務分担とする。
 
-Task / Session / Turn ID、Trusted Expected Repository、Runtime / Version、Policy Version、Repository Posture と各 Check、Tool / Action、Semantic Validation Result、allow / deny / ask、Approval、Execution Result、Commit / PR / CI、Sandbox / Network Denial を Structured Event として記録します。Raw Secret は記録しません。
+同様に、許可されたコマンドが起動するすべての子プロセスをフックが観測できるとは仮定しない。
+
+## 監査
+
+タスク、セッション、ターンの識別子、信頼された期待リポジトリ、実行環境と版、方針の版、リポジトリ保護状態と各検査結果、ツールと操作、意味論検証結果、許可・拒否・承認要求、承認結果、実行結果、コミット・プルリクエスト・CI識別子、サンドボックスやネットワークによる拒否を構造化イベントとして記録する。生の秘密情報は記録しない。
+
+監査イベントは「ハーネスが観測した内容」を表す。フックイベントが存在しないことを、子プロセスによる副作用が存在しなかった根拠として扱わない。
 
 ---
 
