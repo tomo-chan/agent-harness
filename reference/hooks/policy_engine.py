@@ -19,31 +19,37 @@ VALID_RULE_KEYS = {
 
 @dataclass(frozen=True)
 class Decision:
+    """One deterministic policy decision and the rule that produced it."""
+
     decision: str
     reason: str
     rule: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
+        """Serialize the decision for vendor adapters and CLI output."""
         return {"decision": self.decision, "reason": self.reason, "rule": self.rule}
 
 
 class PolicyError(ValueError):
-    pass
+    """Raised when policy configuration violates the supported policy schema."""
 
 
 class PolicyEngine:
-    """Deny > ask > allow policy evaluation with path-aware matching."""
+    """Evaluate normalized actions with deny > ask > allow precedence."""
 
     def __init__(self, policy: dict[str, Any]):
+        """Validate and retain one policy mapping for deterministic evaluation."""
         self.policy = self._validate(policy)
 
     @classmethod
     def from_file(cls, path: str | Path) -> "PolicyEngine":
+        """Load a UTF-8 JSON policy file and construct a validated engine."""
         with open(path, encoding="utf-8") as fh:
             return cls(json.load(fh))
 
     @staticmethod
     def _validate(policy: Any) -> dict[str, Any]:
+        """Validate policy structure and compile all configured regular expressions."""
         if not isinstance(policy, dict):
             raise PolicyError("policy must be an object")
         default = policy.get("default", "ask")
@@ -68,6 +74,7 @@ class PolicyEngine:
 
     @staticmethod
     def _command(action: dict[str, Any]) -> str:
+        """Extract a command string from a normalized action payload."""
         payload = action.get("input", {})
         if not isinstance(payload, dict):
             return ""
@@ -78,10 +85,12 @@ class PolicyEngine:
 
     @classmethod
     def _text(cls, action: dict[str, Any]) -> str:
+        """Build the combined tool-and-command text used by action regex rules."""
         return f"{action.get('tool', '')}\n{cls._command(action)}"
 
     @staticmethod
     def _paths(action: dict[str, Any]) -> list[str]:
+        """Collect path-like input fields that can participate in path-aware rules."""
         payload = action.get("input", {})
         if not isinstance(payload, dict):
             return []
@@ -98,6 +107,7 @@ class PolicyEngine:
 
     @staticmethod
     def _resolved(path: str, cwd: str) -> Path:
+        """Resolve a candidate path relative to the action workspace without requiring existence."""
         candidate = Path(path).expanduser()
         if not candidate.is_absolute():
             candidate = Path(cwd) / candidate
@@ -105,6 +115,7 @@ class PolicyEngine:
 
     @classmethod
     def _path_scope_matches(cls, scope: str, paths: Iterable[str], cwd: str) -> bool:
+        """Evaluate whether paths satisfy the configured workspace scope contract."""
         paths = list(paths)
         if not paths:
             return False
@@ -121,6 +132,7 @@ class PolicyEngine:
 
     @classmethod
     def _matches(cls, rule: dict[str, Any], action: dict[str, Any]) -> bool:
+        """Return whether every predicate configured on one rule matches the action."""
         tool = str(action.get("tool", ""))
         command = cls._command(action)
         paths = cls._paths(action)
@@ -145,6 +157,7 @@ class PolicyEngine:
         return True
 
     def evaluate(self, action: dict[str, Any]) -> Decision:
+        """Evaluate one normalized action using deny-first deterministic precedence."""
         if not isinstance(action, dict):
             raise PolicyError("action must be an object")
         for outcome in ("deny", "ask", "allow"):
@@ -156,6 +169,7 @@ class PolicyEngine:
 
 
 def main() -> int:
+    """Evaluate one JSON action from stdin and fail closed at the CLI boundary."""
     if len(sys.argv) != 2:
         print("usage: policy_engine.py POLICY.json", file=sys.stderr)
         return 64
