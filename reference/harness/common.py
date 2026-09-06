@@ -218,20 +218,14 @@ def _enforce_repository_posture(raw: dict[str, Any], action: dict[str, Any], res
         return result
 
     command = _command(action)
-    if result.decision == "allow" and command and _has_compound_shell(command):
-        return Decision("ask", "compound shell syntax is outside the autonomous allowlist", "compound-shell")
-    if result.decision != "allow" or not _is_mutation(action):
+    mutation = _is_mutation(action)
+    if not mutation:
         return result
 
+    # Repository posture is an authority state, not an approval-class policy result.
+    # It must therefore be enforced before allow/ask handling so BLOCKED cannot be
+    # weakened by native prompts or trusted external approval of an ordinary rule.
     report = current_repository_posture(raw, refresh_if_stale=True)
-    tokens = _shell_tokens(command) or []
-    if tokens[:2] == ["git", "push"]:
-        denied = _validate_canonical_push(raw, action, report)
-        return denied or result
-    if tokens[:3] == ["gh", "pr", "create"]:
-        denied = _validate_pr_create(action, report)
-        return denied or result
-
     if report is None:
         if _is_scm_mutation(action):
             return Decision(
@@ -239,11 +233,25 @@ def _enforce_repository_posture(raw: dict[str, Any], action: dict[str, Any], res
                 "repository security posture is unavailable; remote SCM mutation is restricted",
                 "repository-posture",
             )
+    else:
+        if report.state == "BLOCKED":
+            return Decision("deny", report.summary(), "repository-posture")
+        if report.state == "RESTRICTED" and _is_scm_mutation(action):
+            return Decision("deny", report.summary(), "repository-posture")
+
+    if result.decision != "allow":
         return result
-    if report.state == "BLOCKED":
-        return Decision("deny", report.summary(), "repository-posture")
-    if report.state == "RESTRICTED" and _is_scm_mutation(action):
-        return Decision("deny", report.summary(), "repository-posture")
+
+    if command and _has_compound_shell(command):
+        return Decision("ask", "compound shell syntax is outside the autonomous allowlist", "compound-shell")
+
+    tokens = _shell_tokens(command) or []
+    if tokens[:2] == ["git", "push"]:
+        denied = _validate_canonical_push(raw, action, report)
+        return denied or result
+    if tokens[:3] == ["gh", "pr", "create"]:
+        denied = _validate_pr_create(action, report)
+        return denied or result
     return result
 
 
