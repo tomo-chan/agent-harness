@@ -29,6 +29,14 @@ def _report(state: str):
     )
 
 
+def _allow(command: str, monkeypatch, fake_git):
+    monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
+    monkeypatch.setattr(common, "_run_git", fake_git)
+    raw = _raw(command)
+    action = common.normalize(raw, "codex")
+    return common._enforce_repository_posture(raw, action, Decision("allow", "ok", "canonical-git-push"))
+
+
 def test_restricted_blocks_remote_scm_mutation(monkeypatch):
     monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("RESTRICTED"))
     raw = _raw("git push")
@@ -99,9 +107,7 @@ def test_noncanonical_push_is_denied(monkeypatch):
     assert result.rule == "canonical-git-push"
 
 
-def test_canonical_push_requires_checked_branch_and_upstream(monkeypatch):
-    monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
-
+def test_canonical_plain_push_allows_expected_branch_origin_and_upstream(monkeypatch):
     def fake_git(_cwd, args):
         values = {
             ("branch", "--show-current"): ("feature/review-fix", None),
@@ -110,33 +116,136 @@ def test_canonical_push_requires_checked_branch_and_upstream(monkeypatch):
         }
         return values[tuple(args)]
 
-    monkeypatch.setattr(common, "_run_git", fake_git)
-    raw = _raw("git push")
-    action = common.normalize(raw, "codex")
-    result = common._enforce_repository_posture(raw, action, Decision("allow", "ok", "canonical-git-push"))
+    result = _allow("git push", monkeypatch, fake_git)
     assert result.decision == "allow"
 
 
-def test_canonical_push_denies_default_branch(monkeypatch):
-    monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
+def test_canonical_push_denies_detached_head(monkeypatch):
+    def fake_git(_cwd, args):
+        if tuple(args) == ("branch", "--show-current"):
+            return "", None
+        raise AssertionError(args)
 
+    result = _allow("git push", monkeypatch, fake_git)
+    assert result.decision == "deny"
+    assert "detached HEAD" in result.reason
+
+
+def test_canonical_push_denies_default_branch(monkeypatch):
     def fake_git(_cwd, args):
         if tuple(args) == ("branch", "--show-current"):
             return "main", None
         raise AssertionError(args)
 
-    monkeypatch.setattr(common, "_run_git", fake_git)
-    raw = _raw("git push")
-    action = common.normalize(raw, "codex")
-    result = common._enforce_repository_posture(raw, action, Decision("allow", "ok", "canonical-git-push"))
+    result = _allow("git push", monkeypatch, fake_git)
     assert result.decision == "deny"
     assert "default branch" in result.reason
 
 
-def test_pr_create_cannot_override_repo_head_or_base(monkeypatch):
+def test_canonical_push_denies_origin_repository_mismatch(monkeypatch):
+    def fake_git(_cwd, args):
+        values = {
+            ("branch", "--show-current"): ("feature/review-fix", None),
+            ("remote", "get-url", "origin"): ("https://github.com/other/repository.git", None),
+        }
+        return values[tuple(args)]
+
+    result = _allow("git push", monkeypatch, fake_git)
+    assert result.decision == "deny"
+    assert "origin" in result.reason
+
+
+def test_plain_push_denies_wrong_upstream(monkeypatch):
+    def fake_git(_cwd, args):
+        values = {
+            ("branch", "--show-current"): ("feature/review-fix", None),
+            ("remote", "get-url", "origin"): ("https://github.com/tomo-chan/agent-harness.git", None),
+            ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): ("origin/other", None),
+        }
+        return values[tuple(args)]
+
+    result = _allow("git push", monkeypatch, fake_git)
+    assert result.decision == "deny"
+    assert "origin/feature/review-fix" in result.reason
+
+
+def test_plain_push_without_upstream_requires_first_publish_form(monkeypatch):
+    def fake_git(_cwd, args):
+        values = {
+            ("branch", "--show-current"): ("feature/review-fix", None),
+            ("remote", "get-url", "origin"): ("https://github.com/tomo-chan/agent-harness.git", None),
+            ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): (None, "no upstream configured"),
+        }
+        return values[tuple(args)]
+
+    result = _allow("git push", monkeypatch, fake_git)
+    assert result.decision == "deny"
+    assert "first publish" in result.reason
+
+
+def test_first_publish_form_allows_when_no_upstream_exists(monkeypatch):
+    def fake_git(_cwd, args):
+        values = {
+            ("branch", "--show-current"): ("feature/review-fix", None),
+            ("remote", "get-url", "origin"): ("https://github.com/tomo-chan/agent-harness.git", None),
+            ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): (None, "no upstream configured"),
+        }
+        return values[tuple(args)]
+
+    result = _allow("git push --set-upstream origin HEAD", monkeypatch, fake_git)
+    assert result.decision == "allow"
+
+
+def test_first_publish_form_denies_when_upstream_already_exists(monkeypatch):
+    def fake_git(_cwd, args):
+        values = {
+            ("branch", "--show-current"): ("feature/review-fix", None),
+            ("remote", "get-url", "origin"): ("https://github.com/tomo-chan/agent-harness.git", None),
+            ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): ("origin/feature/review-fix", None),
+        }
+        return values[tuple(args)]
+
+    result = _allow("git push --set-upstream origin HEAD", monkeypatch, fake_git)
+    assert result.decision == "deny"
+    assert "only for first publication" in result.reason
+
+
+def test_pr_create_cannot_override_repo(monkeypatch):
     monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
     raw = _raw("gh pr create --repo other/repo --fill")
     action = common.normalize(raw, "codex")
     result = common._enforce_repository_posture(raw, action, Decision("allow", "ok", "pr-publish"))
     assert result.decision == "deny"
     assert result.rule == "canonical-pr-create"
+
+
+def test_pr_create_cannot_override_head(monkeypatch):
+    monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
+    raw = _raw("gh pr create --head other-branch --fill")
+    action = common.normalize(raw, "codex")
+    result = common._enforce_repository_posture(raw, action, Decision("allow", "ok", "pr-publish"))
+    assert result.decision == "deny"
+    assert result.rule == "canonical-pr-create"
+
+
+def test_pr_create_cannot_override_base(monkeypatch):
+    monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
+    raw = _raw("gh pr create --base other-base --fill")
+    action = common.normalize(raw, "codex")
+    result = common._enforce_repository_posture(raw, action, Decision("allow", "ok", "pr-publish"))
+    assert result.decision == "deny"
+    assert result.rule == "canonical-pr-create"
+
+
+def test_pr_create_short_aliases_cannot_override_repository_head_or_base(monkeypatch):
+    monkeypatch.setattr(common, "current_repository_posture", lambda *a, **k: _report("READY"))
+    for command in (
+        "gh pr create -R other/repo --fill",
+        "gh pr create -H other-branch --fill",
+        "gh pr create -B other-base --fill",
+    ):
+        raw = _raw(command)
+        action = common.normalize(raw, "codex")
+        result = common._enforce_repository_posture(raw, action, Decision("allow", "ok", "pr-publish"))
+        assert result.decision == "deny"
+        assert result.rule == "canonical-pr-create"
