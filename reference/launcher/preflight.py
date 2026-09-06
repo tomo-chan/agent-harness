@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Check repository security posture before launching an agent session."""
+
 from __future__ import annotations
 
 import argparse
@@ -15,6 +17,11 @@ from checker import check_repository_posture  # noqa: E402
 
 
 def main() -> int:
+    """Evaluate repository posture and return a launcher-friendly exit status.
+
+    Exit status 2 represents a blocked or failed posture evaluation. With
+    ``--require-ready``, exit status 1 represents a valid but non-READY state.
+    """
     parser = argparse.ArgumentParser(description="Check repository security posture before starting an agent session.")
     parser.add_argument("--cwd", default=".")
     parser.add_argument("--json", action="store_true")
