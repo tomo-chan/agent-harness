@@ -164,13 +164,13 @@ def _run_git(cwd: Path, args: Sequence[str]) -> tuple[str | None, str | None]:
 
 
 def _active_repo_root(cwd: Path) -> str | None:
-    """Resolve the active Git repository root for posture-cache invalidation."""
+    """Resolve the active Git repository root for posture-cache context checks."""
     value, _ = _run_git(cwd, ["rev-parse", "--show-toplevel"])
     return str(Path(value).resolve()) if value else None
 
 
 def refresh_repository_posture(raw: dict[str, Any]):
-    """Re-evaluate repository posture and save the result for this session."""
+    """Re-evaluate repository posture and save a non-authoritative session copy."""
     cwd = Path(str(raw.get("cwd") or os.getcwd()))
     session_id = str(raw.get("session_id") or f"pid-{os.getpid()}")
     report = check_repository_posture(cwd)
@@ -179,20 +179,28 @@ def refresh_repository_posture(raw: dict[str, Any]):
 
 
 def current_repository_posture(raw: dict[str, Any], *, refresh_if_stale: bool = True):
-    """Return session posture, refreshing when repository identity or TTL changed."""
+    """Return repository posture without trusting mutable cache for enforcement.
+
+    When ``refresh_if_stale`` is true, which is the enforcement path used for
+    mutations, posture is always re-evaluated from Git and GitHub evidence. The
+    session cache is only a context/performance artifact and is never an
+    authoritative source for mutation permission. Read-only callers may request
+    the cached report by setting ``refresh_if_stale`` false.
+    """
+    if refresh_if_stale:
+        try:
+            return refresh_repository_posture(raw)
+        except Exception:
+            return None
+
     cwd = Path(str(raw.get("cwd") or os.getcwd())).resolve()
     session_id = str(raw.get("session_id") or f"pid-{os.getpid()}")
     report = load_cached_posture(session_id)
     current_root = _active_repo_root(cwd)
-    stale = report is None
-    if report is not None:
-        stale = stale or current_root is None or report.repo_root != current_root
-        stale = stale or (time.time() - report.checked_at > report.ttl_seconds)
-    if stale and refresh_if_stale:
-        try:
-            report = refresh_repository_posture(raw)
-        except Exception:
-            return None
+    if report is None or current_root is None or report.repo_root != current_root:
+        return None
+    if time.time() - report.checked_at > report.ttl_seconds:
+        return None
     return report
 
 
@@ -357,11 +365,12 @@ def _validate_pr_create(raw: dict[str, Any], action: dict[str, Any], report) -> 
 
 
 def _enforce_repository_posture(raw: dict[str, Any], action: dict[str, Any], result: Decision) -> Decision:
-    """Apply authority-state and semantic SCM constraints to a policy decision.
+    """Apply freshly evaluated authority-state and semantic SCM constraints.
 
     ``BLOCKED`` and ``RESTRICTED`` are repository authority states, not ordinary
-    approval-class decisions. They are enforced before approval so a lower-level
-    approval cannot weaken an authority restriction.
+    approval-class decisions. Mutation enforcement always re-evaluates posture
+    instead of trusting the writable session cache, then applies authority before
+    ordinary approval so lower-level approval cannot weaken the restriction.
     """
     if action.get("event") != "PreToolUse":
         return result
