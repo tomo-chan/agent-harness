@@ -28,15 +28,9 @@ Trusted external approval may authorize that final `ask`. Repository authority s
 
 ## Rationale
 
-Edit-time path checks are useful but incomplete. A protected file can be changed through multiple mechanisms, including:
+Edit-time path checks are useful but incomplete. A protected file can be changed through Write/Edit tools, `apply_patch`, Git restore/checkout, repository scripts, or arbitrary allowed code execution. Trying to make every mutation primitive path-aware creates a large and vendor-specific mediation surface.
 
-- Write/Edit tools;
-- `apply_patch`;
-- `git checkout` / `git restore`;
-- repository scripts;
-- arbitrary allowed code execution.
-
-Trying to make every mutation primitive path-aware creates a large and vendor-specific mediation surface. Publication-time diff evaluation instead asks the security-relevant question directly:
+Publication-time diff evaluation instead asks the security-relevant question directly:
 
 > Does the branch being published contain a change to the control plane?
 
@@ -44,9 +38,11 @@ This is independent of how the change was produced.
 
 ## RAEM interpretation
 
-The model review identified that the previous refinement mapped the abstract claim “control-plane changes require approval” to edit-time tool classification. That refinement was incomplete because some mutation paths did not expose target paths.
+Model Review identified that the previous refinement mapped the abstract claim “control-plane changes require approval” to edit-time tool classification. That refinement was incomplete because some mutation paths did not expose target paths.
 
 The evolved refinement maps the claim to publication evidence: the Git diff itself. The deterministic assurance rule checks protected paths in that evidence before crossing the remote SCM boundary.
+
+The first implementation of this rule contained a path-normalization defect: using `lstrip("./")` removed the significant leading dot from `.github/...`, causing the protected-path regression test to fail. CI detected the mismatch before merge. The implementation was corrected to remove only literal leading `./` segments. This is an explicit RAEM Evolution example: Model Review produced a new claim, deterministic assurance exposed a concrete implementation defect, and the corrected knowledge remains as regression evidence.
 
 ## Failure semantics
 
