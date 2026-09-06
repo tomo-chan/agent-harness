@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
+"""Adapt normalized harness decisions to Devin CLI hook responses."""
+
 from __future__ import annotations
 
 from common import completion_check, emit, evaluate, read_stdin, repository_posture_context
 
 
 def main() -> int:
+    """Handle Devin CLI SessionStart, PreToolUse, and Stop hook events."""
     try:
         raw = read_stdin()
     except Exception as exc:
