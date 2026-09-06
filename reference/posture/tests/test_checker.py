@@ -101,6 +101,37 @@ def test_full_check_restricted_when_rules_cannot_be_verified(tmp_path: Path, mon
     assert report.checks["require_pull_request"].status == "unknown"
 
 
+def test_trusted_launcher_can_explicitly_lower_mode_for_interactive_use(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_HARNESS_EXPECTED_REPOSITORY", "acme/widget")
+    trusted = _write_trusted_policy(tmp_path, {"mode": "restricted"})
+    monkeypatch.setenv("AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY", str(trusted))
+    monkeypatch.setenv("AGENT_HARNESS_MINIMUM_POSTURE_MODE", "warn")
+    _write_repository_overlay(tmp_path, {"mode": "warn"})
+    report = check_repository_posture(tmp_path, _runner(tmp_path, rules_ok=False))
+    assert report.mode == "warn"
+    assert report.state == "READY"
+    assert "launcher_mode=warn" in report.policy_source
+
+
+def test_repository_cannot_weaken_trusted_launcher_mode(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_HARNESS_EXPECTED_REPOSITORY", "acme/widget")
+    trusted = _write_trusted_policy(tmp_path, {"mode": "warn"})
+    monkeypatch.setenv("AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY", str(trusted))
+    monkeypatch.setenv("AGENT_HARNESS_MINIMUM_POSTURE_MODE", "strict")
+    _write_repository_overlay(tmp_path, {"mode": "warn"})
+    report = check_repository_posture(tmp_path, _runner(tmp_path, rules_ok=False))
+    assert report.mode == "strict"
+    assert report.state == "BLOCKED"
+
+
+def test_invalid_trusted_launcher_mode_fails_closed(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_HARNESS_EXPECTED_REPOSITORY", "acme/widget")
+    monkeypatch.setenv("AGENT_HARNESS_MINIMUM_POSTURE_MODE", "invalid")
+    report = check_repository_posture(tmp_path, _runner(tmp_path))
+    assert report.state == "BLOCKED"
+    assert report.checks["policy"].status == "fail"
+
+
 def test_repository_warn_cannot_weaken_trusted_restricted_mode(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("AGENT_HARNESS_EXPECTED_REPOSITORY", "acme/widget")
     trusted = _write_trusted_policy(tmp_path, {"mode": "restricted"})
