@@ -21,6 +21,10 @@ def test_read_only_git_is_allowed():
 
 def test_force_push_is_denied():
     assert engine().evaluate(action("git push --force origin feature/x")).decision == "deny"
+    assert engine().evaluate(action("git push -f origin feature/x")).decision == "deny"
+    assert engine().evaluate(action("git push --force-with-lease origin feature/x")).decision == "deny"
+    assert engine().evaluate(action("git push --force-with-lease=main origin feature/x")).decision == "deny"
+    assert engine().evaluate(action("git push --force-with-lease=main:deadbeef origin feature/x")).decision == "deny"
 
 
 def test_only_canonical_push_forms_are_policy_allowed():
