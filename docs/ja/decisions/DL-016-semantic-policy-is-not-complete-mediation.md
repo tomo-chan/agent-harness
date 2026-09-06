@@ -1,45 +1,45 @@
-# DL-016 — Semantic Policy は Complete Mediation ではない
+# DL-016 — 意味論的方針は完全仲介ではない
 
-- Status: Accepted / Vendor・Runtime Update 時に再評価
+- 状態: 採用 / ベンダーまたは実行環境の変更時に再評価
 
-## Context
+## 背景
 
-Harness は `PreToolUse` などの Vendor Lifecycle / Tool Event を観測し、その境界で見える Action に対して Deterministic Semantic Policy を適用する。これは Agent が直接発行する `git push`、`gh pr create`、File Edit、明示的な Credential Extraction などには有効である。
+ハーネスは `PreToolUse` などのベンダーのライフサイクルイベントやツールイベントを観測し、その境界で見える操作に対して決定的な意味論的方針を適用する。これは、エージェントが直接発行する `git push`、`gh pr create`、ファイル編集、明示的な認証情報抽出などには有効である。
 
-一方、許可された Executable は Repository-controlled Code を内部で実行できる。例えば `pytest`、`npm test`、Compiler Build Script、Plugin、その他の許可済み Program が内部で `git`、`gh`、HTTP Client、別 Process を起動する可能性がある。Vendor Hook が通常観測するのは外側の Invocation であり、全 Secondary Process / Side Effect ではない。
+一方、許可された実行ファイルは、リポジトリによって管理されるコードを内部で実行できる。例えば `pytest`、`npm test`、コンパイラのビルドスクリプト、プラグイン、その他の許可済みプログラムが内部で `git`、`gh`、HTTPクライアント、別プロセスを起動する可能性がある。ベンダーのフックが通常観測するのは外側の呼び出しであり、すべての子プロセスや副作用ではない。
 
-したがって Semantic Hook を Complete Mediation とみなすと、その Mechanism が実際に確立できる保証範囲を超えてしまう。
+したがって、意味論的フックを完全仲介とみなすと、その仕組みが実際に確立できる保証範囲を超えてしまう。
 
-## Decision
+## 判断
 
-Semantic Policy Engine と SCM Semantic Validator が統治するのは、**Hook Boundary で観測可能な Agent-issued Action** とする。許可後に実行される Arbitrary Code の全 Secondary Effect に対する Authoritative Complete-mediation Boundary とはしない。
+意味論的方針エンジンとSCM意味論検証器が統治するのは、**フック境界で観測可能な、エージェントが直接発行した操作**とする。許可後に実行される任意コードのすべての二次的な副作用に対する権威的な完全仲介境界とはしない。
 
-Critical External-system Invariant は、許可済み Process が Hook から見えない Secondary Action を行っても成立しなければならない。そのため、次の Lower-level Authority へ Refinement する。
+重要な外部システムの不変条件は、許可済みプロセスがフックから見えない二次的な操作を行っても成立しなければならない。そのため、次の下位の権限境界へ具体化する。
 
-- Least-privilege / Short-lived / Repository-scoped IAM・SCM Credential
-- GitHub Rulesets / Branch Protection / Required Pull Request / Required Status Check
-- Threat Model 上必要な場合の Network Destination Control
-- Host / Local Resource Protection のための Workload / Sandbox Capability Boundary
+- 最小権限・短寿命・リポジトリ限定のIAM / SCM認証情報
+- GitHubのルールセット、ブランチ保護、プルリクエスト必須、必須状態検査
+- 脅威モデル上必要な場合の通信先制御
+- ホストおよびローカル資源を保護するためのワークロード / サンドボックス能力境界
 
-Harness は引き続き明示的な Direct Misuse を deny し、通常の Autonomous Publication を Canonical Direct Command Shape に限定する。ただしそれは Accidental / Model-generated Misuse を減らす Control であり、Sandbox 内の Process が異なる SCM / Network Operation を一切試行できないことの Proof ではない。
+ハーネスは引き続き明示的な直接の誤用を拒否し、通常の自律的な公開操作を正規形の直接コマンドに限定する。ただし、それは偶発的な誤操作やモデルが生成した危険操作を減らす制御であり、サンドボックス内のプロセスが異なるSCM操作やネットワーク操作を一切試行できないことの証明ではない。
 
-## RAEM Interpretation
+## RAEMによる整理
 
-Abstract Claim を次のように分離する。
+抽象的な主張を次のように分離する。
 
-1. **Direct Semantic-action Claim** — Harness が許可する Agent-issued Direct SCM Publication は Canonical Publication Contract に従う。
-2. **External Authority Invariant** — Local Semantic Policy が Bypass / Compromise されても、Unrestricted Repository / Organization Authority を得られず、Authoritative Server-side Policy が禁止する Mutation は成立しない。
-3. **Principle** — Local Semantic Policy は明示的な Unsafe Behavior を減らすが、Complete Security Boundary と記述しない。
+1. **直接操作に対する意味論的主張** — ハーネスが許可する、エージェントが直接発行したSCM公開操作は、正規公開契約に従う。
+2. **外部権限の不変条件** — ローカルの意味論的方針が迂回または侵害されても、無制限のリポジトリ権限や組織権限を得られず、権威的なサーバー側方針が禁止する変更は成立しない。
+3. **原則** — ローカルの意味論的方針は明示的な危険操作を減らすが、完全なセキュリティ境界とは記述しない。
 
-これにより、Assurance Mechanism が実際に観測する Evidence より強い Claim を主張しない。Local Hook は1番目の Claim の Evidence、IAM / GitHub-side Policy は2番目の Invariant の Independent Evidence / Enforcement を担う。
+これにより、保証機構が実際に観測できる根拠より強い主張を行わない。ローカルフックは1番目の主張に対する根拠を担い、IAMとGitHub側の方針は2番目の不変条件に対する独立した根拠と強制を担う。
 
-## Consequences
+## 結果
 
-- `pytest` / `npm test` 等の Verification Command は Policy が許可する限り Autonomous に実行可能だが、その実行は Nested Side Effect がすべて Semantic Mediation されたことの証明にはならない。
-- Documentation は Direct Agent-issued Publication と Arbitrary Nested Process Effect を区別する。
-- Security Review では Repository-controlled Code が Allowed Process 内で実行される前提でも、Lower-level IAM / Server-side Control が十分か評価する。
-- Concrete Threat Model が必要としない限り、Complete Mediation を疑似実現するためだけに Generic Process Interception、SCM Broker、Command Shim を導入しない。
+- `pytest` や `npm test` などの検証コマンドは方針が許可する限り自律実行できるが、その実行は内部の副作用がすべて意味論的に仲介されたことの証明にはならない。
+- 文書では、エージェントが直接発行した公開操作と、任意の子プロセスが生じさせる副作用を区別する。
+- セキュリティレビューでは、リポジトリ管理下のコードが許可済みプロセス内で実行される前提でも、下位のIAMおよびサーバー側制御が十分かを評価する。
+- 具体的な脅威モデルが必要としない限り、完全仲介を疑似的に実現するためだけに汎用的なプロセス監視、SCM仲介サービス、コマンド差し替え層を導入しない。
 
-## Revisit Trigger
+## 再評価条件
 
-Vendor / Runtime が、TCB を不必要に拡大せず Nested Process / Network Effect を Trusted / Structured に観測・強制できる Complete Mediation Boundary を提供した場合、または Deployment Threat Model が IAM / Server-side Policy より強い Containment を要求した場合に再評価する。
+ベンダーまたは実行環境が、信頼計算基盤を不必要に拡大せず、子プロセスやネットワーク上の副作用を信頼できる構造化された形で観測・強制できる完全仲介境界を提供した場合、または配備先の脅威モデルがIAMやサーバー側方針より強い封じ込めを要求した場合に再評価する。
