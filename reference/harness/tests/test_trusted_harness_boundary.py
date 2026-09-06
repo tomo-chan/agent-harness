@@ -59,7 +59,14 @@ def test_kubernetes_baseline_uses_read_only_trusted_root() -> None:
     assert "AGENT_HARNESS_TRUSTED_ROOT" in text
     assert "value: /opt/agent-harness" in text
     assert "readOnlyRootFilesystem: true" in text
-    assert "AGENT_HARNESS_REPOSITORY_SECURITY_POLICY" in text
+    assert "AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY" in text
+    assert "AGENT_HARNESS_REPOSITORY_SECURITY_POLICY" not in text
+
+
+def test_trusted_wrapper_preserves_repository_overlay_semantics() -> None:
+    text = (ROOT / "reference" / "launcher" / "trusted_hook.py").read_text(encoding="utf-8")
+    assert 'os.environ["AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY"]' in text
+    assert 'os.environ.pop("AGENT_HARNESS_REPOSITORY_SECURITY_POLICY", None)' in text
 
 
 def test_hook_configs_remain_valid_json() -> None:
