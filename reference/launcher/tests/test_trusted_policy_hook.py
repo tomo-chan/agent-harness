@@ -55,3 +55,18 @@ def test_trusted_policy_hook_rejects_policy_outside_trusted_root(tmp_path: Path)
     )
     assert result.returncode != 0
     assert "must resolve inside AGENT_HARNESS_TRUSTED_ROOT" in result.stderr
+
+
+def test_trusted_policy_hook_does_not_accept_adapter_override(tmp_path: Path) -> None:
+    """S1 fixes the generic adapter; vendor or repository input cannot replace it."""
+    fake_adapter = tmp_path / "adapter.py"
+    fake_adapter.write_text("raise SystemExit(0)\n", encoding="utf-8")
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert "AGENT_HARNESS_TRUSTED_ADAPTER" not in text
+
+
+def test_trusted_policy_hook_removes_legacy_repository_policy_variable() -> None:
+    """The launcher must not leave the legacy repository-selectable policy path active."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert 'os.environ.pop("AGENT_POLICY", None)' in text
+    assert 'os.environ["AGENT_HARNESS_POLICY"]' in text
