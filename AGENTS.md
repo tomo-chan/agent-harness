@@ -129,6 +129,8 @@ For temporary/vendor-dependent choices, record the limitation, workaround, and r
 
 Distinguish trusted task identity, repository posture detection, behavioral guidance, semantic policy, static permissions, SCM semantic validation, OS capability isolation, workload isolation, IAM/SCM containment, server-side enforcement, and observability. Do not describe a prompt, hook, deny-list, sandbox, credential secrecy assumption, or direct-command validator as a complete security control when nested execution or a lower-level authority boundary exists.
 
+Japanese documentation must be written as Japanese documentation, not English terminology embedded in Japanese prose. Translate conceptual terms, headings, explanatory labels, and ordinary technical nouns into established Japanese terminology wherever a natural Japanese term exists. Keep the original spelling only when it is an identifier or proper name whose spelling is operationally significant, such as code symbols, environment variables, command names/options, file paths, protocol/product names, API fields, or values that must match an implementation. When an English term is useful for disambiguation, introduce it parenthetically on first use rather than repeatedly mixing English terminology into the Japanese text.
+
 Product-specific claims change over time. Verify upstream documentation before changing hook schemas, SessionStart behavior, sandbox/network behavior, permission semantics, or credential-masking guidance.
 
 ## Git workflow
