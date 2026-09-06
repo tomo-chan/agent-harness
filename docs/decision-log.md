@@ -50,13 +50,13 @@ This log records implementation choices that shape the harness. Detailed records
 
 ## DL-008 — Harness/config files are security-sensitive
 
-- Status: Accepted
-- Decision: Changes to `.agent-harness/`, vendor hook config, CI workflows, harness, posture and policy code are approval-class operations.
+- Status: Accepted; refined by DL-019
+- Decision: Control-plane changes require explicit review before publication. Edit-time path checks remain defense in depth, while publication-time diff evaluation is the path-independent enforcement point.
 
 ## DL-009 — Stop hooks use deterministic completion gates
 
-- Status: Accepted
-- Decision: Stop hooks invoke a deterministic completion check; retry/time/tool/cost circuit breakers remain external.
+- Status: Accepted; refined by DL-020
+- Decision: Stop hooks use deterministic completion assurance. Read-only sessions may complete from unchanged repository-state evidence; changed or unverifiable state runs the full delivery gate.
 
 ## DL-010 — Hooks are defense in depth, not final authority
 
@@ -76,12 +76,12 @@ Detailed record: [DL-011](decisions/DL-011-sandbox-first-credential-isolation.md
 
 Detailed record: [DL-012](decisions/DL-012-sessionstart-repository-posture.md).
 
-- Status: Accepted; Revisit on vendor change
+- Status: Accepted; refined by DL-018; Revisit on vendor change
 - Decision: Run a repository posture check at SessionStart, cache `READY` / `RESTRICTED` / `BLOCKED`, and refresh stale posture before remote SCM mutation.
 - Trusted identity: `AGENT_HARNESS_EXPECTED_REPOSITORY` is supplied by the trusted launcher; absence is `UNKNOWN`, mismatch is `BLOCKED`.
-- Minimum posture: repository-local `mode` cannot weaken `AGENT_HARNESS_MINIMUM_POSTURE_MODE`, whose default is `restricted`.
-- Missing config: use built-in `restricted` defaults.
-- Invalid explicit config: `BLOCKED`.
+- Effective posture policy: a trusted baseline and repository-local overlay are combined monotonically; repository-local policy may strengthen but never weaken trusted requirements.
+- Missing repository overlay: trusted baseline remains effective.
+- Invalid trusted or repository policy: `BLOCKED`.
 - Unknown external state: preserve `UNKNOWN`; effective policy mode decides whether it blocks, restricts or warns.
 - Enforcement: SessionStart detects/fails fast; PreToolUse enforces; GitHub Rulesets/IAM remain authoritative.
 
@@ -91,19 +91,18 @@ Detailed record: [DL-013](decisions/DL-013-canonical-scm-publication.md).
 
 - Status: Accepted; Revisit on vendor change
 - Decision: Autonomous direct Git publication uses only `git push` and `git push --set-upstream origin HEAD`, followed by semantic repository/branch/upstream validation.
-- Compound shell: compound syntax is not autonomous even when the first command is read-only.
+- Compound shell: compound syntax is not autonomous even when the first command is read-only; remote SCM mutation is conservatively detected anywhere in a compound command for posture enforcement.
 - PR creation: direct `gh pr create` cannot override repository/head/base in the autonomous path.
 - Scope: this is a semantic contract for agent-issued actions visible at the hook boundary, not complete mediation of arbitrary nested process effects. See DL-016.
-- Rationale: avoid attempting to safely interpret arbitrary shell/refspec syntax when a narrow structured publication path is sufficient.
 
 ## DL-015 — Trusted harness boundary
 
 Detailed record: [DL-015](decisions/DL-015-trusted-harness-boundary.md).
 
 - Status: Accepted; Revisit on vendor/runtime change
-- Decision: Production policy, posture, SCM semantic validation, and completion code execute from `AGENT_HARNESS_TRUSTED_ROOT`, provisioned outside the agent-mutable workspace.
+- Decision: Production policy, posture evaluator, SCM semantic validation, and completion code execute from `AGENT_HARNESS_TRUSTED_ROOT`, provisioned outside the agent-mutable workspace.
 - Baseline realization: bake the approved harness snapshot into `/opt/agent-harness` on the read-only container root filesystem while keeping `/workspace` mutable.
-- Policy source: the trusted wrapper pins semantic and repository-posture policy to the trusted root rather than allowing repository-controlled files to become the production normative policy.
+- Policy source: semantic policy and trusted posture baseline are rooted in the trusted installation; repository posture configuration is an untrusted strengthening overlay as defined by DL-018.
 - Hook registration: project-local hook files are reference/development wiring; production should provision registration from trusted launcher/managed configuration where the vendor provides such a mechanism.
 - RAEM invariant: an assurance/policy mechanism used as an independent authority boundary must not depend on implementation controlled by the subject it evaluates.
 
@@ -123,9 +122,33 @@ Detailed record: [DL-017](decisions/DL-017-authority-state-precedes-approval.md)
 
 - Status: Accepted
 - Decision: Repository posture is an authority state and is evaluated before ordinary allow/ask handling for mutating operations.
-- `BLOCKED`: mutation is denied regardless of native approval prompts or external approval of an ordinary policy rule.
+- `BLOCKED`: mutation is denied regardless of native approval prompts or trusted external approval.
 - `RESTRICTED`: local development remains available, but remote SCM mutation stays denied until posture is remediated.
 - RAEM invariant: an authority state that declares mutation prohibited must not be weakened by a lower-level approval mechanism.
+
+## DL-018 — Monotonic posture policy composition
+
+Detailed record: [DL-018](decisions/DL-018-monotonic-posture-policy-composition.md).
+
+- Status: Accepted
+- Decision: Compose trusted baseline and repository overlay monotonically: mode uses the stricter value, required controls use logical OR, and cache TTL uses the shorter value.
+- Authority: repository-local configuration can add constraints but cannot remove trusted constraints.
+
+## DL-019 — Control-plane publication review
+
+Detailed record: [DL-019](decisions/DL-019-control-plane-publication-review.md).
+
+- Status: Accepted
+- Decision: Before canonical push or autonomous PR creation, inspect the committed diff against the remote default branch and require explicit approval when protected control-plane paths changed.
+- Rationale: enforce the review claim from publication evidence instead of depending on every mutation mechanism exposing target paths.
+
+## DL-020 — Session-aware completion assurance
+
+Detailed record: [DL-020](decisions/DL-020-session-aware-completion-assurance.md).
+
+- Status: Accepted
+- Decision: Capture repository root, HEAD and exact worktree state at SessionStart. Unchanged state is read-only; changed or unverifiable state runs the full delivery completion gate.
+- Failure semantics: missing or invalid baseline never implies read-only.
 
 ## Maintenance rule
 
