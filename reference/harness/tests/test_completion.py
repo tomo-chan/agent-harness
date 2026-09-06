@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,82 +12,107 @@ def _raw(tmp_path: Path) -> dict:
     return {"cwd": str(tmp_path), "session_id": "completion-test"}
 
 
-def test_unchanged_repository_state_is_read_only_and_skips_gate(tmp_path: Path, monkeypatch) -> None:
-    snapshots = [
-        ({"repo_root": str(tmp_path), "head": "abc", "status": ""}, None),
-        ({"repo_root": str(tmp_path), "head": "abc", "status": ""}, None),
-    ]
-    monkeypatch.setattr(completion, "_snapshot", lambda _cwd: snapshots.pop(0))
-    monkeypatch.setenv("AGENT_HARNESS_STATE_DIR", str(tmp_path / "state"))
+def _report(state: str = "READY", default_branch: str = "main") -> SimpleNamespace:
+    return SimpleNamespace(
+        state=state,
+        default_branch=default_branch,
+        summary=lambda: f"repository posture {state}",
+    )
+
+
+def test_session_start_does_not_persist_authoritative_completion_state(tmp_path: Path) -> None:
+    reason = completion.capture_session_start(_raw(tmp_path))
+    assert "re-evaluate authoritative repository state at Stop" in reason
+
+
+def test_clean_checked_default_branch_skips_delivery_gate(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(completion, "check_repository_posture", lambda _cwd: _report())
+
+    def fake_git(_cwd: Path, args):
+        values = {
+            ("branch", "--show-current"): ("main", None),
+            ("status", "--porcelain=v1", "--untracked-files=all"): ("", None),
+            ("rev-parse", "HEAD"): ("abc", None),
+            ("rev-parse", "origin/main"): ("abc", None),
+        }
+        return values[tuple(args)]
+
+    monkeypatch.setattr(completion, "_run_git", fake_git)
     monkeypatch.setattr(completion, "_run_completion_gate", lambda _cwd: pytest.fail("gate must not run"))
 
-    completion.capture_session_start(_raw(tmp_path))
     ok, reason = completion.completion_check(_raw(tmp_path))
-
     assert ok is True
-    assert "read-only session" in reason
+    assert "read-only repository state" in reason
 
 
-def test_changed_head_runs_full_completion_gate(tmp_path: Path, monkeypatch) -> None:
-    snapshots = [
-        ({"repo_root": str(tmp_path), "head": "abc", "status": ""}, None),
-        ({"repo_root": str(tmp_path), "head": "def", "status": ""}, None),
-    ]
-    monkeypatch.setattr(completion, "_snapshot", lambda _cwd: snapshots.pop(0))
-    monkeypatch.setenv("AGENT_HARNESS_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setattr(completion, "_run_completion_gate", lambda _cwd: (False, "delivery gate failed"))
-
-    completion.capture_session_start(_raw(tmp_path))
-    ok, reason = completion.completion_check(_raw(tmp_path))
-
-    assert ok is False
-    assert reason == "delivery gate failed"
-
-
-def test_changed_worktree_runs_full_completion_gate(tmp_path: Path, monkeypatch) -> None:
-    snapshots = [
-        ({"repo_root": str(tmp_path), "head": "abc", "status": ""}, None),
-        ({"repo_root": str(tmp_path), "head": "abc", "status": " M src/app.py\n"}, None),
-    ]
-    monkeypatch.setattr(completion, "_snapshot", lambda _cwd: snapshots.pop(0))
-    monkeypatch.setenv("AGENT_HARNESS_STATE_DIR", str(tmp_path / "state"))
+def test_feature_branch_runs_delivery_gate(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(completion, "check_repository_posture", lambda _cwd: _report())
+    monkeypatch.setattr(
+        completion,
+        "_run_git",
+        lambda _cwd, args: ("feature/x", None) if tuple(args) == ("branch", "--show-current") else pytest.fail(str(args)),
+    )
     monkeypatch.setattr(completion, "_run_completion_gate", lambda _cwd: (True, "delivery gate passed"))
 
-    completion.capture_session_start(_raw(tmp_path))
     ok, reason = completion.completion_check(_raw(tmp_path))
-
     assert ok is True
     assert reason == "delivery gate passed"
 
 
-def test_missing_baseline_never_assumes_read_only(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("AGENT_HARNESS_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setattr(
-        completion,
-        "_snapshot",
-        lambda _cwd: ({"repo_root": str(tmp_path), "head": "abc", "status": ""}, None),
-    )
+def test_dirty_default_branch_runs_delivery_gate(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(completion, "check_repository_posture", lambda _cwd: _report())
+
+    def fake_git(_cwd: Path, args):
+        values = {
+            ("branch", "--show-current"): ("main", None),
+            ("status", "--porcelain=v1", "--untracked-files=all"): (" M src/app.py", None),
+        }
+        return values[tuple(args)]
+
+    monkeypatch.setattr(completion, "_run_git", fake_git)
+    monkeypatch.setattr(completion, "_run_completion_gate", lambda _cwd: (False, "dirty delivery"))
+
+    ok, reason = completion.completion_check(_raw(tmp_path))
+    assert ok is False
+    assert reason == "dirty delivery"
+
+
+def test_diverged_default_branch_runs_delivery_gate(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(completion, "check_repository_posture", lambda _cwd: _report())
+
+    def fake_git(_cwd: Path, args):
+        values = {
+            ("branch", "--show-current"): ("main", None),
+            ("status", "--porcelain=v1", "--untracked-files=all"): ("", None),
+            ("rev-parse", "HEAD"): ("local", None),
+            ("rev-parse", "origin/main"): ("remote", None),
+        }
+        return values[tuple(args)]
+
+    monkeypatch.setattr(completion, "_run_git", fake_git)
+    monkeypatch.setattr(completion, "_run_completion_gate", lambda _cwd: (False, "diverged delivery"))
+
+    ok, reason = completion.completion_check(_raw(tmp_path))
+    assert ok is False
+    assert reason == "diverged delivery"
+
+
+def test_unverifiable_posture_never_skips_delivery_gate(tmp_path: Path, monkeypatch) -> None:
+    def fail_posture(_cwd: Path):
+        raise RuntimeError("posture unavailable")
+
+    monkeypatch.setattr(completion, "check_repository_posture", fail_posture)
     monkeypatch.setattr(completion, "_run_completion_gate", lambda _cwd: (False, "full gate required"))
 
     ok, reason = completion.completion_check(_raw(tmp_path))
-
     assert ok is False
     assert reason == "full gate required"
 
 
-def test_invalid_baseline_never_assumes_read_only(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("AGENT_HARNESS_STATE_DIR", str(tmp_path / "state"))
-    path = completion._state_path("completion-test")
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"repo_root": str(tmp_path)}), encoding="utf-8")
-    monkeypatch.setattr(
-        completion,
-        "_snapshot",
-        lambda _cwd: ({"repo_root": str(tmp_path), "head": "abc", "status": ""}, None),
-    )
-    monkeypatch.setattr(completion, "_run_completion_gate", lambda _cwd: (False, "full gate required"))
+def test_blocked_posture_never_skips_delivery_gate(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(completion, "check_repository_posture", lambda _cwd: _report("BLOCKED"))
+    monkeypatch.setattr(completion, "_run_completion_gate", lambda _cwd: (False, "blocked delivery"))
 
     ok, reason = completion.completion_check(_raw(tmp_path))
-
     assert ok is False
-    assert reason == "full gate required"
+    assert reason == "blocked delivery"
