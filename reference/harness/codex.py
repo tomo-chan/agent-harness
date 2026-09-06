@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from common import completion_check, emit, evaluate, read_stdin, repository_posture_context
+from common import emit, evaluate, read_stdin, repository_posture_context
+from completion import capture_session_start, completion_check
 
 
 def main() -> int:
@@ -19,10 +20,11 @@ def main() -> int:
 
     event = str(raw.get("hook_event_name", "PreToolUse"))
     if event == "SessionStart":
+        context = repository_posture_context(raw) + " " + capture_session_start(raw)
         return emit({
             "hookSpecificOutput": {
                 "hookEventName": "SessionStart",
-                "additionalContext": repository_posture_context(raw),
+                "additionalContext": context,
             }
         })
     if event == "Stop":
