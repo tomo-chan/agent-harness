@@ -216,7 +216,9 @@ def _checked_origin(cwd: Path, report, rule: str) -> Decision | None:
 
 def _is_control_plane_path(path: str) -> bool:
     """Return whether a repository path belongs to the harness control plane."""
-    normalized = path.replace("\\", "/").lstrip("./")
+    normalized = path.replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
     return normalized in CONTROL_PLANE_FILES or normalized.startswith(CONTROL_PLANE_PREFIXES)
 
 
