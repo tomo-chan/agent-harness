@@ -158,6 +158,25 @@ def repository_posture_context(raw: dict[str, Any]) -> str:
     return report.summary() + f" policy={report.policy_source}."
 
 
+def _current_branch(cwd: Path, rule: str) -> tuple[str | None, Decision | None]:
+    branch, error = _run_git(cwd, ["branch", "--show-current"])
+    if error or not branch:
+        return None, Decision(
+            "deny",
+            f"cannot determine current branch: {error or 'detached HEAD'}",
+            rule,
+        )
+    return branch, None
+
+
+def _checked_origin(cwd: Path, report, rule: str) -> Decision | None:
+    remote, error = _run_git(cwd, ["remote", "get-url", "origin"])
+    remote_repo = parse_github_repository(remote or "") if remote else None
+    if error or not remote_repo or remote_repo != report.repository:
+        return Decision("deny", "origin no longer matches the checked repository", rule)
+    return None
+
+
 def _validate_canonical_push(raw: dict[str, Any], action: dict[str, Any], report) -> Decision | None:
     command = _command(action)
     tokens = _shell_tokens(command)
@@ -172,16 +191,16 @@ def _validate_canonical_push(raw: dict[str, Any], action: dict[str, Any], report
         return Decision("deny", reason, "repository-posture")
 
     cwd = Path(str(raw.get("cwd") or os.getcwd())).resolve()
-    branch, error = _run_git(cwd, ["branch", "--show-current"])
-    if error or not branch:
-        return Decision("deny", f"cannot determine current branch: {error or 'detached HEAD'}", "canonical-git-push")
+    branch, denied = _current_branch(cwd, "canonical-git-push")
+    if denied:
+        return denied
+    assert branch is not None
     if branch == report.default_branch:
         return Decision("deny", f"direct push to default branch {branch} is prohibited", "canonical-git-push")
 
-    remote, error = _run_git(cwd, ["remote", "get-url", "origin"])
-    remote_repo = parse_github_repository(remote or "") if remote else None
-    if error or not remote_repo or remote_repo != report.repository:
-        return Decision("deny", "origin no longer matches the checked repository", "canonical-git-push")
+    denied = _checked_origin(cwd, report, "canonical-git-push")
+    if denied:
+        return denied
 
     upstream, upstream_error = _run_git(
         cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]
@@ -204,7 +223,7 @@ def _validate_canonical_push(raw: dict[str, Any], action: dict[str, Any], report
     return None
 
 
-def _validate_pr_create(action: dict[str, Any], report) -> Decision | None:
+def _validate_pr_create(raw: dict[str, Any], action: dict[str, Any], report) -> Decision | None:
     command = _command(action)
     tokens = _shell_tokens(command)
     if not tokens or tokens[:3] != ["gh", "pr", "create"]:
@@ -217,6 +236,33 @@ def _validate_pr_create(action: dict[str, Any], report) -> Decision | None:
         return Decision(
             "deny",
             "autonomous `gh pr create` may not override repository, head branch, or base branch",
+            "canonical-pr-create",
+        )
+
+    cwd = Path(str(raw.get("cwd") or os.getcwd())).resolve()
+    branch, denied = _current_branch(cwd, "canonical-pr-create")
+    if denied:
+        return denied
+    assert branch is not None
+    if branch == report.default_branch:
+        return Decision(
+            "deny",
+            f"cannot create an autonomous PR from the default branch {branch}",
+            "canonical-pr-create",
+        )
+
+    denied = _checked_origin(cwd, report, "canonical-pr-create")
+    if denied:
+        return denied
+
+    upstream, upstream_error = _run_git(
+        cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]
+    )
+    expected = f"origin/{branch}"
+    if upstream_error or upstream != expected:
+        return Decision(
+            "deny",
+            f"autonomous PR creation requires published branch upstream {expected}; publish the current branch canonically first",
             "canonical-pr-create",
         )
     return None
@@ -259,7 +305,7 @@ def _enforce_repository_posture(raw: dict[str, Any], action: dict[str, Any], res
         denied = _validate_canonical_push(raw, action, report)
         return denied or result
     if tokens[:3] == ["gh", "pr", "create"]:
-        denied = _validate_pr_create(action, report)
+        denied = _validate_pr_create(raw, action, report)
         return denied or result
     return result
 
