@@ -1,3 +1,12 @@
+"""Shared vendor-neutral hook evaluation and SCM semantic validation.
+
+The functions in this module mediate agent-issued actions visible at the hook
+boundary. They do not claim complete mediation of arbitrary child-process side
+effects. Repository authority state, canonical SCM publication, and completion
+checks are kept explicit so the security contract can be reviewed independently
+from vendor adapters.
+"""
+
 from __future__ import annotations
 
 import json
@@ -35,6 +44,7 @@ CANONICAL_PUSH_FORMS = {
 
 
 def read_stdin() -> dict[str, Any]:
+    """Read and validate one vendor hook payload from standard input."""
     value = json.load(sys.stdin)
     if not isinstance(value, dict):
         raise ValueError("hook input must be a JSON object")
@@ -42,6 +52,7 @@ def read_stdin() -> dict[str, Any]:
 
 
 def normalize(raw: dict[str, Any], vendor: str) -> dict[str, Any]:
+    """Normalize a vendor hook payload into the central policy action model."""
     tool_input = raw.get("tool_input", raw.get("input", {}))
     if not isinstance(tool_input, dict):
         tool_input = {"value": tool_input}
@@ -61,6 +72,7 @@ def normalize(raw: dict[str, Any], vendor: str) -> dict[str, Any]:
 
 
 def _command(action: dict[str, Any]) -> str:
+    """Return the shell command represented by a normalized action."""
     value = action.get("input", {}).get("command", "")
     if isinstance(value, list):
         return " ".join(str(item) for item in value)
@@ -68,6 +80,7 @@ def _command(action: dict[str, Any]) -> str:
 
 
 def _shell_tokens(command: str) -> list[str] | None:
+    """Tokenize a shell command while preserving control operators as tokens."""
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>")
         lexer.whitespace_split = True
@@ -78,6 +91,7 @@ def _shell_tokens(command: str) -> list[str] | None:
 
 
 def _has_compound_shell(command: str) -> bool:
+    """Return whether a command contains shell composition outside the allowlist."""
     if "\n" in command or "\r" in command or "`" in command or "$(" in command:
         return True
     tokens = _shell_tokens(command)
@@ -87,10 +101,17 @@ def _has_compound_shell(command: str) -> bool:
 
 
 def _is_scm_mutation(action: dict[str, Any]) -> bool:
+    """Return whether an action directly requests a remote SCM mutation."""
     return bool(SCM_MUTATION_RE.search(_command(action)))
 
 
 def _is_mutation(action: dict[str, Any]) -> bool:
+    """Conservatively classify whether an observed action can mutate state.
+
+    Unknown shell commands and compound shell expressions are treated as
+    mutations. This classification is intentionally conservative because
+    repository posture is an authority state that must precede approval logic.
+    """
     tool = str(action.get("tool", "")).lower()
     if tool in MUTATING_TOOLS:
         return True
@@ -103,6 +124,7 @@ def _is_mutation(action: dict[str, Any]) -> bool:
 
 
 def _run_git(cwd: Path, args: Sequence[str]) -> tuple[str | None, str | None]:
+    """Run a bounded local Git query and return ``(stdout, error)``."""
     try:
         result = subprocess.run(
             ["git", *args],
@@ -121,11 +143,13 @@ def _run_git(cwd: Path, args: Sequence[str]) -> tuple[str | None, str | None]:
 
 
 def _active_repo_root(cwd: Path) -> str | None:
+    """Resolve the active Git repository root for posture-cache invalidation."""
     value, _ = _run_git(cwd, ["rev-parse", "--show-toplevel"])
     return str(Path(value).resolve()) if value else None
 
 
 def refresh_repository_posture(raw: dict[str, Any]):
+    """Re-evaluate repository posture and save the result for this session."""
     cwd = Path(str(raw.get("cwd") or os.getcwd()))
     session_id = str(raw.get("session_id") or f"pid-{os.getpid()}")
     report = check_repository_posture(cwd)
@@ -134,6 +158,7 @@ def refresh_repository_posture(raw: dict[str, Any]):
 
 
 def current_repository_posture(raw: dict[str, Any], *, refresh_if_stale: bool = True):
+    """Return session posture, refreshing when repository identity or TTL changed."""
     cwd = Path(str(raw.get("cwd") or os.getcwd())).resolve()
     session_id = str(raw.get("session_id") or f"pid-{os.getpid()}")
     report = load_cached_posture(session_id)
@@ -151,6 +176,7 @@ def current_repository_posture(raw: dict[str, Any], *, refresh_if_stale: bool = 
 
 
 def repository_posture_context(raw: dict[str, Any]) -> str:
+    """Build SessionStart context describing the current repository posture."""
     try:
         report = refresh_repository_posture(raw)
     except Exception as exc:
@@ -159,6 +185,7 @@ def repository_posture_context(raw: dict[str, Any]) -> str:
 
 
 def _current_branch(cwd: Path, rule: str) -> tuple[str | None, Decision | None]:
+    """Resolve a named current branch or return a deny decision for detached state."""
     branch, error = _run_git(cwd, ["branch", "--show-current"])
     if error or not branch:
         return None, Decision(
@@ -170,6 +197,7 @@ def _current_branch(cwd: Path, rule: str) -> tuple[str | None, Decision | None]:
 
 
 def _checked_origin(cwd: Path, report, rule: str) -> Decision | None:
+    """Ensure ``origin`` still names the repository verified by posture checking."""
     remote, error = _run_git(cwd, ["remote", "get-url", "origin"])
     remote_repo = parse_github_repository(remote or "") if remote else None
     if error or not remote_repo or remote_repo != report.repository:
@@ -178,6 +206,13 @@ def _checked_origin(cwd: Path, report, rule: str) -> Decision | None:
 
 
 def _validate_canonical_push(raw: dict[str, Any], action: dict[str, Any], report) -> Decision | None:
+    """Validate the direct autonomous Git publication contract.
+
+    A permitted push must use one of the two canonical command shapes, run from
+    a non-default named branch, target the checked ``origin``, and use the
+    expected upstream semantics. The set-upstream form is reserved for first
+    publication only.
+    """
     command = _command(action)
     tokens = _shell_tokens(command)
     if not tokens or tuple(tokens) not in CANONICAL_PUSH_FORMS:
@@ -224,6 +259,12 @@ def _validate_canonical_push(raw: dict[str, Any], action: dict[str, Any], report
 
 
 def _validate_pr_create(raw: dict[str, Any], action: dict[str, Any], report) -> Decision | None:
+    """Validate autonomous PR creation against the current checked Git state.
+
+    Repository, head, and base overrides are prohibited. The current branch must
+    be a published non-default branch whose ``origin`` and upstream still match
+    the repository verified by SessionStart posture checking.
+    """
     command = _command(action)
     tokens = _shell_tokens(command)
     if not tokens or tokens[:3] != ["gh", "pr", "create"]:
@@ -269,6 +310,12 @@ def _validate_pr_create(raw: dict[str, Any], action: dict[str, Any], report) -> 
 
 
 def _enforce_repository_posture(raw: dict[str, Any], action: dict[str, Any], result: Decision) -> Decision:
+    """Apply authority-state and semantic SCM constraints to a policy decision.
+
+    ``BLOCKED`` and ``RESTRICTED`` are repository authority states, not ordinary
+    approval-class decisions. They are therefore enforced before ``allow`` or
+    ``ask`` handling so an approval cannot weaken a posture restriction.
+    """
     if action.get("event") != "PreToolUse":
         return result
 
@@ -277,9 +324,6 @@ def _enforce_repository_posture(raw: dict[str, Any], action: dict[str, Any], res
     if not mutation:
         return result
 
-    # Repository posture is an authority state, not an approval-class policy result.
-    # It must therefore be enforced before allow/ask handling so BLOCKED cannot be
-    # weakened by native prompts or trusted external approval of an ordinary rule.
     report = current_repository_posture(raw, refresh_if_stale=True)
     if report is None:
         if _is_scm_mutation(action):
@@ -311,6 +355,7 @@ def _enforce_repository_posture(raw: dict[str, Any], action: dict[str, Any], res
 
 
 def evaluate(raw: dict[str, Any], vendor: str) -> Decision:
+    """Evaluate one hook action through policy, approval, and posture enforcement."""
     policy = Path(os.environ.get("AGENT_HARNESS_POLICY", str(DEFAULT_POLICY)))
     action = normalize(raw, vendor)
     try:
@@ -329,6 +374,7 @@ def evaluate(raw: dict[str, Any], vendor: str) -> Decision:
 
 
 def completion_check(raw: dict[str, Any]) -> tuple[bool, str]:
+    """Run the deterministic completion gate for the active task workspace."""
     cwd = Path(str(raw.get("cwd") or os.getcwd()))
     gate = ROOT / "reference" / "scripts" / "completion_gate.sh"
     env = os.environ.copy()
@@ -350,6 +396,7 @@ def completion_check(raw: dict[str, Any]) -> tuple[bool, str]:
 
 
 def emit(value: dict[str, Any]) -> int:
+    """Emit a compact JSON hook response to standard output."""
     json.dump(value, sys.stdout, separators=(",", ":"))
     sys.stdout.write("\n")
     return 0
