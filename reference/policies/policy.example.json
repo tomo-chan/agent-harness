@@ -40,8 +40,8 @@
     {
       "id": "harness-config-change",
       "tool_regex": "(?i)^(Write|Edit|write|edit|multi_edit)$",
-      "path_regex": "(^|/)(\\.agent-harness/|\\.claude/|\\.codex/|\\.devin/|\\.github/workflows/|reference/harness/|reference/hooks/|reference/posture/|reference/policies/|AGENTS\\.md$)",
-      "reason": "Changing agent, posture, policy, or CI control files requires explicit approval."
+      "path_regex": "(^|/)(\\.agent-harness/|\\.claude/|\\.codex/|\\.devin/|\\.github/workflows/|\\.github/pull_request_template\\.md$|reference/claude/|reference/codex/|reference/harness/|reference/hooks/|reference/posture/|reference/policies/|reference/launcher/|reference/scripts/|reference/kubernetes/|AGENTS\\.md$)",
+      "reason": "Changing agent, posture, policy, assurance, deployment, or CI control files requires explicit approval."
     },
     {
       "id": "scm-merge-release",
@@ -69,7 +69,7 @@
     {
       "id": "codex-apply-patch",
       "tool_regex": "(?i)^apply_patch$",
-      "reason": "Patch application is allowed; the sandbox remains the filesystem boundary."
+      "reason": "Patch application is allowed; publication-time control-plane diff review remains the path-independent approval boundary."
     },
     {
       "id": "read-only-shell",
