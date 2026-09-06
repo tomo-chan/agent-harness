@@ -1,3 +1,11 @@
+"""Evaluate and cache repository security posture for autonomous agent sessions.
+
+Repository posture is an authority state derived from trusted launcher identity,
+repository-local requirements, local Git state, and effective GitHub rules. The
+checker preserves pass/fail/unknown evidence instead of silently treating
+unavailable external state as success.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -29,12 +37,16 @@ MODE_RANK = {"warn": 0, "restricted": 1, "strict": 2}
 
 @dataclass(frozen=True)
 class Check:
+    """One posture evidence item with pass, fail, or unknown status."""
+
     status: str  # pass | fail | unknown
     detail: str
 
 
 @dataclass(frozen=True)
 class RepositorySecurityPolicy:
+    """Normalized repository posture requirements and cache behavior."""
+
     mode: str
     ttl_seconds: int
     requirements: dict[str, bool]
@@ -42,6 +54,7 @@ class RepositorySecurityPolicy:
 
     @classmethod
     def from_mapping(cls, value: dict[str, Any]) -> "RepositorySecurityPolicy":
+        """Validate a policy mapping and apply built-in requirement defaults."""
         mode = str(value.get("mode", "restricted"))
         if mode not in MODE_RANK:
             raise ValueError("mode must be strict, restricted, or warn")
@@ -61,6 +74,7 @@ class RepositorySecurityPolicy:
 
     @classmethod
     def load(cls, repo_root: Path) -> tuple["RepositorySecurityPolicy", str]:
+        """Load explicit or repository-local policy, falling back to restricted defaults."""
         explicit = os.environ.get("AGENT_HARNESS_REPOSITORY_SECURITY_POLICY")
         path = Path(explicit) if explicit else repo_root / ".agent-harness" / "security.json"
         if not path.exists():
@@ -73,6 +87,8 @@ class RepositorySecurityPolicy:
 
 @dataclass(frozen=True)
 class PostureReport:
+    """Repository authority state together with the evidence used to derive it."""
+
     state: str  # READY | RESTRICTED | BLOCKED
     repository: str | None
     repo_root: str
@@ -84,12 +100,14 @@ class PostureReport:
     checks: dict[str, Check]
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize the report for the session posture cache."""
         value = asdict(self)
         value["checks"] = {name: asdict(check) for name, check in self.checks.items()}
         return value
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "PostureReport":
+        """Reconstruct a posture report from cached serialized data."""
         checks = {name: Check(**check) for name, check in value.get("checks", {}).items()}
         return cls(
             state=value["state"],
@@ -104,6 +122,7 @@ class PostureReport:
         )
 
     def summary(self) -> str:
+        """Return a concise human- and agent-readable posture explanation."""
         problems = [
             f"{name}={check.status} ({check.detail})"
             for name, check in self.checks.items()
@@ -114,6 +133,7 @@ class PostureReport:
 
 
 def _run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Run one bounded local command used to collect posture evidence."""
     return subprocess.run(
         list(command), cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         check=False, timeout=15,
@@ -121,6 +141,7 @@ def _run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
 
 
 def _stdout(runner: CommandRunner, command: Sequence[str], cwd: Path) -> tuple[str | None, str | None]:
+    """Run a command and normalize its result into ``(stdout, error)``."""
     try:
         result = runner(command, cwd)
     except Exception as exc:
@@ -131,6 +152,7 @@ def _stdout(runner: CommandRunner, command: Sequence[str], cwd: Path) -> tuple[s
 
 
 def _repo_root(cwd: Path, runner: CommandRunner) -> Path:
+    """Resolve the active Git repository root or fail when outside a repository."""
     output, error = _stdout(runner, ["git", "rev-parse", "--show-toplevel"], cwd)
     if error or not output:
         raise RuntimeError(f"not inside a Git repository: {error or 'unknown error'}")
@@ -138,6 +160,7 @@ def _repo_root(cwd: Path, runner: CommandRunner) -> Path:
 
 
 def parse_github_repository(remote: str) -> str | None:
+    """Parse a github.com SSH or URL remote into canonical ``owner/repository`` form."""
     remote = remote.strip()
     ssh = re.fullmatch(r"git@github\.com:([^/]+)/(.+?)(?:\.git)?", remote)
     if ssh:
@@ -151,6 +174,7 @@ def parse_github_repository(remote: str) -> str | None:
 
 
 def _effective_mode(repository_mode: str) -> tuple[str, str]:
+    """Apply the trusted minimum posture mode without allowing repository weakening."""
     minimum = os.environ.get("AGENT_HARNESS_MINIMUM_POSTURE_MODE", "restricted")
     if minimum not in MODE_RANK:
         raise ValueError("AGENT_HARNESS_MINIMUM_POSTURE_MODE must be strict, restricted, or warn")
@@ -159,6 +183,7 @@ def _effective_mode(repository_mode: str) -> tuple[str, str]:
 
 
 def _state_for(mode: str, checks: dict[str, Check]) -> str:
+    """Derive READY, RESTRICTED, or BLOCKED from mode and three-valued evidence."""
     problem = any(check.status in {"fail", "unknown"} for check in checks.values())
     if not problem:
         return "READY"
@@ -170,6 +195,7 @@ def _state_for(mode: str, checks: dict[str, Check]) -> str:
 
 
 def _effective_rule_types(repository: str, default_branch: str, root: Path, runner: CommandRunner) -> tuple[set[str] | None, str | None]:
+    """Read active GitHub rule types that currently apply to the default branch."""
     endpoint = f"repos/{repository}/rules/branches/{quote(default_branch, safe='')}"
     raw, error = _stdout(runner, ["gh", "api", endpoint], root)
     if raw is None:
@@ -188,6 +214,13 @@ def _effective_rule_types(repository: str, default_branch: str, root: Path, runn
 
 
 def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> PostureReport:
+    """Evaluate trusted repository identity and required GitHub protections.
+
+    Invalid explicit policy fails closed to BLOCKED. Missing or unavailable
+    external evidence remains ``unknown`` and is interpreted according to the
+    effective posture mode. A trusted repository identity mismatch is always
+    BLOCKED regardless of that mode.
+    """
     cwd = Path(cwd).resolve()
     root = _repo_root(cwd, runner)
     try:
@@ -281,6 +314,7 @@ def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> P
 
 
 def _state_path(session_id: str) -> Path:
+    """Derive a filesystem-safe private cache path from a session identifier."""
     base = Path(os.environ.get(
         "AGENT_HARNESS_STATE_DIR",
         str(Path(tempfile.gettempdir()) / "agent-harness" / "posture"),
@@ -290,6 +324,7 @@ def _state_path(session_id: str) -> Path:
 
 
 def save_cached_posture(session_id: str, report: PostureReport) -> None:
+    """Atomically persist a posture report with restrictive filesystem permissions."""
     path = _state_path(session_id)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     temp = path.with_suffix(".tmp")
@@ -299,6 +334,7 @@ def save_cached_posture(session_id: str, report: PostureReport) -> None:
 
 
 def load_cached_posture(session_id: str) -> PostureReport | None:
+    """Load a cached posture report, returning ``None`` for missing or invalid cache data."""
     path = _state_path(session_id)
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
