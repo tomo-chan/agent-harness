@@ -51,6 +51,7 @@ class RepositorySecurityPolicy:
     ttl_seconds: int
     requirements: dict[str, bool]
     expected_repository: str | None = None
+    repository_expected_repository: str | None = None
 
     @classmethod
     def from_mapping(cls, value: dict[str, Any]) -> "RepositorySecurityPolicy":
@@ -74,13 +75,7 @@ class RepositorySecurityPolicy:
 
     @classmethod
     def from_overlay(cls, value: dict[str, Any]) -> "RepositorySecurityPolicy":
-        """Validate a repository overlay without inventing weakening defaults.
-
-        Missing requirements are represented as ``False`` because the overlay is
-        combined monotonically with the trusted baseline. ``warn`` is the neutral
-        mode and a large default TTL is neutral when the effective TTL is the
-        minimum of both inputs.
-        """
+        """Validate a repository overlay without inventing weakening defaults."""
         mode = str(value.get("mode", "warn"))
         if mode not in MODE_RANK:
             raise ValueError("mode must be strict, restricted, or warn")
@@ -96,7 +91,7 @@ class RepositorySecurityPolicy:
                 raise ValueError(f"unknown repository security requirement: {key}")
             requirements[key] = bool(item)
         expected = value.get("expected_repository")
-        return cls(mode, ttl, requirements, str(expected) if expected else None)
+        return cls(mode, ttl, requirements, None, str(expected) if expected else None)
 
     @staticmethod
     def _read_mapping(path: Path) -> dict[str, Any]:
@@ -108,16 +103,12 @@ class RepositorySecurityPolicy:
 
     @classmethod
     def load_effective(cls, repo_root: Path) -> tuple["RepositorySecurityPolicy", str]:
-        """Combine trusted launcher policy and repository overlay monotonically.
+        """Combine trusted baseline and repository overlay without weakening identity.
 
-        ``AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY`` supplies the trusted
-        baseline file. A trusted launcher may explicitly override only the
-        baseline mode through ``AGENT_HARNESS_MINIMUM_POSTURE_MODE``; this keeps
-        the established interactive ``warn`` use case while requirements and TTL
-        remain anchored in the trusted baseline file. The repository overlay at
-        ``.agent-harness/security.json`` may then strengthen mode or requirements,
-        shorten TTL, and add an expected-repository consistency claim, but cannot
-        weaken the resulting trusted baseline.
+        The trusted baseline retains its ``expected_repository`` value. A
+        repository overlay may add a second consistency claim, but it cannot
+        replace the trusted identity. The two claims are evaluated independently
+        by ``check_repository_posture`` and disagreement is always BLOCKED.
         """
         trusted_path_value = os.environ.get("AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY")
         if trusted_path_value:
@@ -139,6 +130,7 @@ class RepositorySecurityPolicy:
                 baseline.ttl_seconds,
                 dict(baseline.requirements),
                 baseline.expected_repository,
+                baseline.repository_expected_repository,
             )
             trusted_source = f"{trusted_source}; launcher_mode={launcher_mode}"
 
@@ -153,7 +145,13 @@ class RepositorySecurityPolicy:
             for key in baseline.requirements
         }
         ttl_seconds = min(baseline.ttl_seconds, overlay.ttl_seconds)
-        effective = cls(mode, ttl_seconds, requirements, overlay.expected_repository)
+        effective = cls(
+            mode,
+            ttl_seconds,
+            requirements,
+            baseline.expected_repository,
+            overlay.repository_expected_repository,
+        )
         return effective, f"trusted={trusted_source}; repository={overlay_path}"
 
 
@@ -262,13 +260,7 @@ def _effective_rule_types(repository: str, default_branch: str, root: Path, runn
 
 
 def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> PostureReport:
-    """Evaluate trusted repository identity and required GitHub protections.
-
-    Invalid trusted or repository policy fails closed to BLOCKED. Missing or
-    unavailable external evidence remains ``unknown`` and is interpreted by the
-    effective mode. Repository-local policy can strengthen but never weaken the
-    trusted baseline. A trusted repository identity mismatch is always BLOCKED.
-    """
+    """Evaluate trusted repository identity and required GitHub protections."""
     cwd = Path(cwd).resolve()
     root = _repo_root(cwd, runner)
     try:
@@ -300,9 +292,16 @@ def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> P
 
     if policy.expected_repository:
         status = "pass" if repository == policy.expected_repository else "fail"
-        checks["repository_declared_identity"] = Check(status, f"repository policy expected {policy.expected_repository}; found {repository}")
+        checks["trusted_policy_identity"] = Check(status, f"trusted policy expected {policy.expected_repository}; found {repository}")
         if trusted_expected and policy.expected_repository != trusted_expected:
-            checks["repository_policy_conflict"] = Check("fail", f"repository policy expects {policy.expected_repository} but trusted launcher expects {trusted_expected}")
+            checks["trusted_identity_conflict"] = Check("fail", f"trusted policy expects {policy.expected_repository} but trusted launcher expects {trusted_expected}")
+
+    if policy.repository_expected_repository:
+        status = "pass" if repository == policy.repository_expected_repository else "fail"
+        checks["repository_declared_identity"] = Check(status, f"repository policy expected {policy.repository_expected_repository}; found {repository}")
+        trusted_claim = trusted_expected or policy.expected_repository
+        if trusted_claim and policy.repository_expected_repository != trusted_claim:
+            checks["repository_policy_conflict"] = Check("fail", f"repository policy expects {policy.repository_expected_repository} but trusted identity expects {trusted_claim}")
 
     default_branch: str | None = None
     metadata_error: str | None = None
@@ -340,9 +339,15 @@ def check_repository_posture(cwd: Path | str, runner: CommandRunner = _run) -> P
             checks[requirement] = Check("fail", f"no active {rule_type} rule applies to {default_branch}")
 
     state = _state_for(policy.mode, checks)
-    for key in ("trusted_repository_identity", "repository_declared_identity", "repository_policy_conflict"):
-        if checks.get(key, Check("pass", "")).status == "fail":
-            state = "BLOCKED"
+    identity_keys = (
+        "trusted_repository_identity",
+        "trusted_policy_identity",
+        "trusted_identity_conflict",
+        "repository_declared_identity",
+        "repository_policy_conflict",
+    )
+    if any(checks.get(key, Check("pass", "")).status == "fail" for key in identity_keys):
+        state = "BLOCKED"
 
     return PostureReport(
         state, repository, str(root), default_branch, policy.mode, policy.ttl_seconds,
@@ -368,7 +373,7 @@ def save_cached_posture(session_id: str, report: PostureReport) -> None:
 
 
 def load_cached_posture(session_id: str) -> PostureReport | None:
-    """Load a cached posture report, returning ``None`` for missing or invalid cache data."""
+    """Load cached posture only as non-authoritative contextual state."""
     path = _state_path(session_id)
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
