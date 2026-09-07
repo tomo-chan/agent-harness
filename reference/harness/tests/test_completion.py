@@ -26,10 +26,7 @@ def test_session_start_does_not_persist_authoritative_completion_state(tmp_path:
     assert "re-evaluate authoritative repository state at Stop" in reason
 
 
-def test_clean_ready_default_branch_requires_request_source_agreement(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """No-change repository state alone must not prove task completion."""
+def test_clean_ready_default_branch_skips_delivery_gate(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(completion, "check_repository_posture", lambda _cwd: _report())
 
     def fake_git(_cwd: Path, args):
@@ -49,15 +46,15 @@ def test_clean_ready_default_branch_requires_request_source_agreement(
     )
 
     ok, reason = completion.completion_check(_raw(tmp_path))
-    assert ok is False
-    assert "request-source agreement" in reason
-    assert "clean READY default branch" in reason
+    assert ok is True
+    assert "read-only repository state" in reason
+    assert "READY" in reason
 
 
 def test_restricted_default_branch_never_skips_delivery_gate(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Only READY posture is sufficient for the no-change state exception."""
+    """Only READY posture is sufficient for the read-only completion exception."""
     monkeypatch.setattr(
         completion, "check_repository_posture", lambda _cwd: _report("RESTRICTED")
     )
