@@ -94,3 +94,11 @@ def test_trusted_policy_hook_rebinds_expected_repository() -> None:
     assert 'os.environ.get("AGENT_HARNESS_TRUSTED_EXPECTED_REPOSITORY")' in text
     assert 'os.environ["AGENT_HARNESS_EXPECTED_REPOSITORY"] = expected_repository' in text
     assert 'os.environ.pop("AGENT_HARNESS_EXPECTED_REPOSITORY", None)' in text
+
+
+def test_trusted_policy_hook_preserves_python_isolation() -> None:
+    """A fresh trusted interpreter must ignore repository-controlled startup paths."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert 'os.execv(sys.executable, [sys.executable, "-I", str(adapter)])' in text
+    for name in ("PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONINSPECT"):
+        assert f'"{name}"' in text
