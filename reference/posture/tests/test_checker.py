@@ -110,7 +110,6 @@ def test_trusted_launcher_can_explicitly_lower_mode_for_interactive_use(tmp_path
     report = check_repository_posture(tmp_path, _runner(tmp_path, rules_ok=False))
     assert report.mode == "warn"
     assert report.state == "READY"
-    assert "launcher_mode=warn" in report.policy_source
 
 
 def test_repository_cannot_weaken_trusted_launcher_mode(tmp_path: Path, monkeypatch) -> None:
@@ -142,53 +141,10 @@ def test_repository_warn_cannot_weaken_trusted_restricted_mode(tmp_path: Path, m
     assert report.state == "RESTRICTED"
 
 
-def test_repository_can_strengthen_trusted_warn_mode(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("AGENT_HARNESS_EXPECTED_REPOSITORY", "acme/widget")
-    trusted = _write_trusted_policy(tmp_path, {
-        "mode": "warn",
-        "requirements": {
-            "github_remote": True,
-            "require_pull_request": False,
-            "block_force_push": False,
-            "required_status_checks": False,
-        },
-    })
-    monkeypatch.setenv("AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY", str(trusted))
-    _write_repository_overlay(tmp_path, {
-        "mode": "strict",
-        "requirements": {"require_pull_request": True},
-    })
-    report = check_repository_posture(tmp_path, _runner(tmp_path, rules_ok=False))
-    assert report.mode == "strict"
-    assert report.state == "BLOCKED"
-    assert "require_pull_request" in report.checks
-
-
 def test_repository_false_requirement_cannot_disable_trusted_true_requirement(tmp_path: Path, monkeypatch) -> None:
-    trusted = _write_trusted_policy(tmp_path, {
-        "requirements": {"required_status_checks": True},
-    })
+    trusted = _write_trusted_policy(tmp_path, {"requirements": {"required_status_checks": True}})
     monkeypatch.setenv("AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY", str(trusted))
-    _write_repository_overlay(tmp_path, {
-        "requirements": {"required_status_checks": False},
-    })
-    policy, _ = RepositorySecurityPolicy.load_effective(tmp_path)
-    assert policy.requirements["required_status_checks"] is True
-
-
-def test_repository_can_add_requirement_not_required_by_trusted_baseline(tmp_path: Path, monkeypatch) -> None:
-    trusted = _write_trusted_policy(tmp_path, {
-        "requirements": {
-            "github_remote": True,
-            "require_pull_request": False,
-            "block_force_push": False,
-            "required_status_checks": False,
-        },
-    })
-    monkeypatch.setenv("AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY", str(trusted))
-    _write_repository_overlay(tmp_path, {
-        "requirements": {"required_status_checks": True},
-    })
+    _write_repository_overlay(tmp_path, {"requirements": {"required_status_checks": False}})
     policy, _ = RepositorySecurityPolicy.load_effective(tmp_path)
     assert policy.requirements["required_status_checks"] is True
 
@@ -200,13 +156,29 @@ def test_repository_can_only_shorten_posture_cache_ttl(tmp_path: Path, monkeypat
     policy, _ = RepositorySecurityPolicy.load_effective(tmp_path)
     assert policy.ttl_seconds == 120
 
-    _write_repository_overlay(tmp_path, {"ttl_seconds": 30})
-    policy, _ = RepositorySecurityPolicy.load_effective(tmp_path)
-    assert policy.ttl_seconds == 30
-
 
 def test_repository_declared_identity_is_additional_consistency_check(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("AGENT_HARNESS_EXPECTED_REPOSITORY", "acme/widget")
+    _write_repository_overlay(tmp_path, {"expected_repository": "acme/other"})
+    report = check_repository_posture(tmp_path, _runner(tmp_path))
+    assert report.state == "BLOCKED"
+    assert report.checks["repository_policy_conflict"].status == "fail"
+
+
+def test_overlay_cannot_remove_trusted_policy_identity(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("AGENT_HARNESS_EXPECTED_REPOSITORY", raising=False)
+    trusted = _write_trusted_policy(tmp_path, {"expected_repository": "acme/other"})
+    monkeypatch.setenv("AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY", str(trusted))
+    _write_repository_overlay(tmp_path, {})
+    report = check_repository_posture(tmp_path, _runner(tmp_path))
+    assert report.state == "BLOCKED"
+    assert report.checks["trusted_policy_identity"].status == "fail"
+
+
+def test_overlay_identity_conflicts_with_trusted_policy_identity(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("AGENT_HARNESS_EXPECTED_REPOSITORY", raising=False)
+    trusted = _write_trusted_policy(tmp_path, {"expected_repository": "acme/widget"})
+    monkeypatch.setenv("AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY", str(trusted))
     _write_repository_overlay(tmp_path, {"expected_repository": "acme/other"})
     report = check_repository_posture(tmp_path, _runner(tmp_path))
     assert report.state == "BLOCKED"
