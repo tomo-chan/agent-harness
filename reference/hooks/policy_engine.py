@@ -71,8 +71,13 @@ class PolicyEngine:
                     )
                 for key in ("tool_regex", "command_regex", "action_regex"):
                     if key in rule:
+                        pattern = rule[key]
+                        if not isinstance(pattern, str):
+                            raise PolicyError(
+                                f"{outcome}[{index}].{key} must be a string"
+                            )
                         try:
-                            re.compile(str(rule[key]))
+                            re.compile(pattern)
                         except re.error as exc:
                             raise PolicyError(
                                 f"invalid regex in {outcome}[{index}].{key}: {exc}"
@@ -100,15 +105,12 @@ class PolicyEngine:
         """Return whether every predicate configured on one rule matches the action."""
         tool = str(action.get("tool", ""))
         command = cls._command(action)
-        if pattern := rule.get("tool_regex"):
-            if not re.search(str(pattern), tool):
-                return False
-        if pattern := rule.get("command_regex"):
-            if not re.search(str(pattern), command):
-                return False
-        if pattern := rule.get("action_regex"):
-            if not re.search(str(pattern), cls._text(action)):
-                return False
+        if "tool_regex" in rule and not re.search(rule["tool_regex"], tool):
+            return False
+        if "command_regex" in rule and not re.search(rule["command_regex"], command):
+            return False
+        if "action_regex" in rule and not re.search(rule["action_regex"], cls._text(action)):
+            return False
         return True
 
     def evaluate(self, action: dict[str, Any]) -> Decision:
