@@ -29,18 +29,23 @@ from policy_engine import Decision  # noqa: E402
 _MUTATING_TOOLS = {"write", "edit", "multi_edit", "apply_patch"}
 _READ_ONLY_TOOLS = {"read", "glob", "grep"}
 _READ_ONLY_COMMAND_RE = re.compile(
-    r"(?i)^\s*(?:pwd|ls|find|rg|grep|cat|head|tail|wc|stat|file|tree|"
-    r"git\s+(?:status|diff|log|show|branch|rev-parse|worktree\s+list)\b|"
-    r"gh\s+pr\s+(?:view|status|checks)\b)(?:\s+[^;&|<>\n]*)?\s*$"
+    r"(?i)^\s*(?:pwd|ls(?:\s+[^;&|<>\n]*)?|rg(?:\s+[^;&|<>\n]*)?|grep(?:\s+[^;&|<>\n]*)?|"
+    r"cat(?:\s+[^;&|<>\n]*)?|head(?:\s+[^;&|<>\n]*)?|tail(?:\s+[^;&|<>\n]*)?|"
+    r"wc(?:\s+[^;&|<>\n]*)?|stat(?:\s+[^;&|<>\n]*)?|file(?:\s+[^;&|<>\n]*)?|tree(?:\s+[^;&|<>\n]*)?|"
+    r"git\s+(?:status|diff|log|show|rev-parse)(?:\s+[^;&|<>\n]*)?|"
+    r"git\s+branch(?:\s+(?:--show-current|--list)(?:\s+[^;&|<>\n]*)?)?|"
+    r"git\s+worktree\s+list(?:\s+[^;&|<>\n]*)?|"
+    r"gh\s+pr\s+(?:view|status|checks)(?:\s+[^;&|<>\n]*)?)\s*$"
 )
 
 
 def is_mutation(action: dict[str, Any]) -> bool:
     """Conservatively classify whether an observed generic action can mutate state.
 
-    S2 needs only the distinction required to enforce ``BLOCKED`` before ordinary
-    approval. This function intentionally does not decide whether a mutation is a
-    remote SCM publication; that classification belongs to S3.
+    Only positively identified read-only tools and command forms return false.
+    Unknown tools, missing command schemas, empty commands, and command variants
+    with mutating modes default to mutation so ``BLOCKED`` cannot be bypassed by
+    an unrecognized adapter schema.
     """
     tool = str(action.get("tool", "")).lower()
     if tool in _MUTATING_TOOLS:
@@ -53,12 +58,12 @@ def is_mutation(action: dict[str, Any]) -> bool:
         return True
     command = payload.get("command")
     if command is None:
-        return False
+        return True
     if isinstance(command, list):
         command = " ".join(str(item) for item in command)
     command = str(command)
-    if not command:
-        return False
+    if not command.strip():
+        return True
     return not bool(_READ_ONLY_COMMAND_RE.fullmatch(command))
 
 
@@ -88,11 +93,19 @@ def _active_repo_root(cwd: Path) -> str | None:
 
 
 def refresh_repository_posture(raw: dict[str, Any]):
-    """Re-evaluate repository posture and save a non-authoritative session copy."""
+    """Re-evaluate repository posture and best-effort save a contextual cache copy.
+
+    The freshly computed report is authoritative for this call. Cache persistence
+    is deliberately non-authoritative and therefore cannot invalidate or replace
+    the report when the state directory is unavailable or concurrent writers race.
+    """
     cwd = Path(str(raw.get("cwd") or os.getcwd()))
     session_id = str(raw.get("session_id") or f"pid-{os.getpid()}")
     report = check_repository_posture(cwd)
-    save_cached_posture(session_id, report)
+    try:
+        save_cached_posture(session_id, report)
+    except Exception:
+        pass
     return report
 
 
