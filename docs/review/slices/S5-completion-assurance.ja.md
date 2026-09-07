@@ -2,15 +2,15 @@
 
 ## 状態
 
-**再レビュー中。** 実装移植後のCodex Reviewにより、現在のrepository stateだけでは「読み取り専用タスクが完了した」のか「変更が必要なタスクを何もせず終了した」のかを識別できないモデル指摘が発見された。この指摘が解消するまでS5を収束状態とはしない。
+**再レビュー中。** MF-S5-001の検討により、S5の保証対象を「タスクの意味的完了」ではなく「repository delivery stateの完了保証」に限定する責任境界を明確化した。実装を試行した結果、Stopで要求元確認を強制すると、確認後も同じStop判定に戻る循環が発生し、S5へ要求解釈・合意管理を持ち込む設計は過剰と判断した。
 
 ## 主張
 
 1. 書込み可能なSessionStartスナップショットを完了判定の権威にしない。
 2. Stop時に現在のリポジトリ保護状態とGit状態を再評価する。
-3. repository stateがGitHub default branchと一致することだけでは、タスクが読み取り専用であったことを証明しない。
-4. 成果物向け完了検査を省略するには、repository stateの一致に加えて、独立した信頼済み根拠から「このタスクはrepository変更を要求しない」と確立できなければならない。
-5. タスク意図を信頼済み根拠から確立できない場合、またはrepository stateを確認できない場合は決定的完了検査を実行する。
+3. cleanな確認済みdefault branchで `local HEAD == GitHub default branch head` が成立する場合、repository delivery上は追加成果物が存在しない状態として扱える。
+4. S5は、そのタスクでrepository変更が必要だったか、ユーザー要求を意味的に満たしたかまでは保証しない。
+5. タスク要求の解釈、Plan、Auto、必要な確認と合意形成はAgent実行系の責任とし、S5へ独自のタスク分類・合意状態管理を追加しない。
 
 ## 権威と責任境界
 
@@ -18,18 +18,20 @@
 - repository-state権威:
   - S2の現在のrepository posture。
   - 確認済みGitHub repositoryから直接取得したdefault branch head SHA。
-- task-intent権威:
-  - **未具体化。** 評価対象repositoryと同じ権限で書換え可能なSessionStart cacheやagent自己申告は権威にできない。
-  - trusted control plane、trusted launcher input、または同等の独立したタスク分類根拠を候補として具体化する必要がある。
 - 観測:
   - 現在branch、worktree cleanliness、local HEAD。
 - 非権威:
   - 書込み可能なSessionStart completion snapshot。
   - `origin/<default>` 等のlocal remote-tracking ref。
-  - agentによる「変更不要だった」という自己申告。
 - 決定的な代替保証:
   - `reference/scripts/completion_gate.sh`。
+- Agent実行系の責任:
+  - タスク要求の解釈。
+  - Plan/Auto等による自律実行範囲の管理。
+  - 要求が曖昧な場合の確認。
+  - repository変更不要という判断を要求元へ確認すべきかの判断。
 - 対象外:
+  - タスクの意味的完了そのものの証明。
   - セッション中の外部副作用不存在の証明。
   - 外部サービス変更の完全追跡。
   - vendor固有Stop wiring: S6。
@@ -38,12 +40,11 @@
 
 ### SessionStart
 
-- repositoryと同じ権限で書換え可能なbaseline fileを完了権威として保存しない。
-- task intentを利用する場合、それは評価対象から独立した信頼境界で確立されなければならない。
+repositoryと同じ権限で書換え可能なbaseline fileを完了権威として保存しない。
 
 ### repository-state一致
 
-次をすべて満たすと「現在のrepository成果物がGitHub default branchと一致する」ことだけを確立できる。
+次をすべて満たすと「現在のrepository成果物がGitHub default branchと一致する」ことを確立できる。
 
 1. Stop時のrepository postureが `READY`。
 2. repository identityとdefault branchが現在の根拠から確定している。
@@ -53,54 +54,59 @@
 6. 確認済みGitHub repositoryからdefault branch head SHAを直接取得できる。
 7. local `HEAD == GitHub default branch head SHA`。
 
-この条件だけから「タスクが読み取り専用だった」と推論してはならない。
+この条件はrepository delivery stateの保証であり、「タスクが読み取り専用だった」「変更不要というタスク要求だった」という意味的主張には拡張しない。
 
-### 完了検査省略条件
+### 通常完了検査
 
-通常の成果物向け完了検査を省略できるのは、次の両方を独立に確立できる場合だけとする。
-
-- repository-state一致。
-- 信頼済みtask intentがrepository変更を要求しないこと。
-
-task intentの権威が未確立・取得不能・曖昧な場合は通常完了検査へ送る。
+上記repository-state一致が成立しない場合は `reference/scripts/completion_gate.sh` による通常の決定的完了検査へ送る。
 
 ## モデル指摘
 
-### MF-S5-001 — repository stateからtask intentを推論できない
+### MF-S5-001 — repository stateだけでは、変更なしでタスクを完了してよいか判断できない
 
-変更実装を要求されたタスクでagentが何も変更しない、または変更を破棄してStopした場合でも、clean default branchかつ `local HEAD == GitHub HEAD` は成立する。この状態は成功したread-only taskと区別できない。
+変更実装を要求されたタスクでAgentが何も変更しない場合でも、clean default branchかつ `local HEAD == GitHub HEAD` は成立し得る。このためrepository stateだけからタスク要求を推論してはならない。
 
-したがって旧主張「cleanな確認済みdefault branchならread-only repository-state例外」は根拠不足であり、実装適合の局所修正では解決できない。
+当初は、変更なし完了時に要求元との合意をS5で必須化する案を試行した。しかしStopをblockするだけでは、要求元確認後にも同じ判定へ戻り続ける。これを解消するために独自の合意状態やタスク分類をS5へ導入すると、S5の責任を不必要に拡大する。
 
-必要な進化は次のとおり。
+そこでMF-S5-001は、S5の保証範囲を次のように限定することで扱う。
 
 ```text
-タスク意図
-  ↓ 独立した信頼済み権威
-変更要求あり / 変更要求なし
+タスク要求
   ↓
-Stop時repository state
+Agent実行系
+  ├─ Plan / Auto
+  ├─ 探索・判断
+  └─ 必要時のみ要求元へ確認
   ↓
-完了検査省略可否
+repository state
+  ↓
+S5
+  └─ repository delivery stateだけを決定的に保証
 ```
 
-書込み可能なSessionStart snapshotを導入するだけではS5主張1と信頼境界に反するため採用しない。
+S5は「タスク要求が満たされた」という主張を行わない。したがってrepository stateからタスク要求を推論する必要もない。
+
+## 実装試行から得た根拠
+
+一時的に、clean default branchをStop時にblockし、要求元との合意を要求する実装を試行した。その結果、合意をS5へ安全かつ単純に戻す経路がなければStopが循環することを確認した。この試行は撤回し、repository-state実装は元に戻した。
+
+この結果から、要求解釈・確認・合意形成をS5へ持ち込まず、既存AgentのPlan/Auto/approval等を利用する責任分担を採用する。
 
 ## 既に固定済みの根拠
 
-`reference/harness/tests/test_completion.py` はrepository-state側について、READY/default branch/clean/local HEAD/GitHub HEAD、RESTRICTED/BLOCKED、取得不能、HEAD不一致等を固定している。ただしMF-S5-001に対応するtask-intent保証は未実装であり、追加の決定的テストが必要である。
+`reference/harness/tests/test_completion.py` はrepository-state側について、READY/default branch/clean/local HEAD/GitHub HEAD、RESTRICTED/BLOCKED、取得不能、HEAD不一致等を固定している。
 
 ## レビュー結果
 
 - [x] 権威レビュー — repository-state権威は明確。
 - [x] 信頼境界レビュー — writable snapshot/local remote refを非権威化。
-- [ ] 根拠完全性レビュー — **task intentの独立根拠が不足。**
+- [x] 根拠完全性レビュー — S5の保証範囲をrepository delivery stateに限定。
 - [x] 失敗形態レビュー — repository-state取得不能は通常gateへfallback。
 - [x] 迂回レビュー — writable snapshot/local remote refによる迂回は排除。
-- [ ] 責任分担レビュー — **task-intent権威をどの層が供給するか未確定。**
-- [ ] 保証欠落レビュー — **MF-S5-001を解消する必要がある。**
-- [ ] 実装適合レビュー — モデル更新後に再実施する。
+- [x] 責任分担レビュー — タスク要求解釈と確認はAgent実行系、repository delivery保証はS5。
+- [x] 保証欠落レビュー — MF-S5-001を保証範囲の明確化として処理。
+- [ ] 実装適合レビュー — PR #10の最新状態で再確認する。
 
 ## 収束判定
 
-S5は現在**未収束**。MF-S5-001「repository stateからtask intentを推論できない」がマージ阻害のモデル指摘として残っている。task-intent権威と保証契約を具体化し、実装・決定的テストへ固定した後に再レビューする。
+S5は**実装適合の再確認待ち**。MF-S5-001は、追加のタスク要求管理機構を導入せず、S5の保証対象をrepository delivery stateへ限定することで解消した。今後、Plan/Auto等の実運用で確認過多や誤完了が具体的に観測された場合は、その実例をEvidenceとして次のEvolution対象とする。
