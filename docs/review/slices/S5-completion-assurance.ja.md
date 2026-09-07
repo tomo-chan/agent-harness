@@ -2,15 +2,17 @@
 
 ## 状態
 
-**再レビュー中。** MF-S5-001の検討により、S5の保証対象を「タスクの意味的完了」ではなく「repository delivery stateの完了保証」に限定する責任境界を明確化した。実装を試行した結果、Stopで要求元確認を強制すると、確認後も同じStop判定に戻る循環が発生し、S5へ要求解釈・合意管理を持ち込む設計は過剰と判断した。
+**再レビュー中。** MF-S5-001の検討により、完了条件には決定的に保証できるものと、Agentが探索結果を踏まえて非決定的に評価すべきものが共存することを明確化した。S5は決定的保証だけでタスク完了を確定せず、そのEvidenceをAgentへ返し、Agent自身が非決定的な完了評価を行う最小ループを実装する。
 
 ## 主張
 
 1. 書込み可能なSessionStartスナップショットを完了判定の権威にしない。
 2. Stop時に現在のリポジトリ保護状態とGit状態を再評価する。
-3. cleanな確認済みdefault branchで `local HEAD == GitHub default branch head` が成立する場合、repository delivery上は追加成果物が存在しない状態として扱える。
-4. S5は、そのタスクでrepository変更が必要だったか、ユーザー要求を意味的に満たしたかまでは保証しない。
-5. タスク要求の解釈、Plan、Auto、必要な確認と合意形成はAgent実行系の責任とし、S5へ独自のタスク分類・合意状態管理を追加しない。
+3. 決定的に表現可能な既知の完了条件は仕組みで保証し、その結果をEvidenceとしてAgentへ返す。
+4. 決定的保証の成立だけをもって、タスク要求が意味的に満たされたとは判断しない。
+5. AgentはEvidenceに加え、タスク要求、Plan、実行結果、未解決事項、新しい発見・洞察を踏まえて非決定的な完了評価を行う。
+6. Agentが追加作業を必要と判断すれば自律的に継続し、要求元の判断が本当に必要な場合だけ確認する。
+7. 非決定的な完了条件を事前に網羅的な決定的分類へ還元することを目的としない。
 
 ## 権威と責任境界
 
@@ -23,15 +25,16 @@
 - 非権威:
   - 書込み可能なSessionStart completion snapshot。
   - `origin/<default>` 等のlocal remote-tracking ref。
-- 決定的な代替保証:
-  - `reference/scripts/completion_gate.sh`。
-- Agent実行系の責任:
-  - タスク要求の解釈。
-  - Plan/Auto等による自律実行範囲の管理。
-  - 要求が曖昧な場合の確認。
-  - repository変更不要という判断を要求元へ確認すべきかの判断。
+- 決定的な保証:
+  - clean READY default branchとGitHub head一致によるno-change Evidence。
+  - `reference/scripts/completion_gate.sh` によるdelivery Evidence。
+- Agentの非決定的責任:
+  - タスク要求とPlanの再評価。
+  - 実行結果が要求を満たしているかの評価。
+  - 未解決事項や新しい発見・洞察の評価。
+  - 追加作業、要求元への確認、完了の選択。
 - 対象外:
-  - タスクの意味的完了そのものの証明。
+  - 非決定的評価そのものを決定的に証明すること。
   - セッション中の外部副作用不存在の証明。
   - 外部サービス変更の完全追跡。
   - vendor固有Stop wiring: S6。
@@ -42,9 +45,9 @@
 
 repositoryと同じ権限で書換え可能なbaseline fileを完了権威として保存しない。
 
-### repository-state一致
+### 決定的Evidence
 
-次をすべて満たすと「現在のrepository成果物がGitHub default branchと一致する」ことを確立できる。
+cleanなno-change経路では次をすべて満たすことを確認する。
 
 1. Stop時のrepository postureが `READY`。
 2. repository identityとdefault branchが現在の根拠から確定している。
@@ -54,59 +57,115 @@ repositoryと同じ権限で書換え可能なbaseline fileを完了権威とし
 6. 確認済みGitHub repositoryからdefault branch head SHAを直接取得できる。
 7. local `HEAD == GitHub default branch head SHA`。
 
-この条件はrepository delivery stateの保証であり、「タスクが読み取り専用だった」「変更不要というタスク要求だった」という意味的主張には拡張しない。
+この条件は「repositoryにdelivery差分がない」というEvidenceであり、タスク要求上変更不要だったことや、タスクそのものの完了を意味しない。
 
-### 通常完了検査
+no-change経路が成立しない場合は `reference/scripts/completion_gate.sh` により通常の決定的delivery保証を行う。
 
-上記repository-state一致が成立しない場合は `reference/scripts/completion_gate.sh` による通常の決定的完了検査へ送る。
+### Agent完了評価ループ
+
+決定的保証が失敗した場合は完了をblockする。
+
+決定的保証が成立した最初のStopでは、完了を即時許可せず、保証Evidenceと次の評価要求をAgentへ返す。
+
+```text
+決定的保証
+   ↓
+ Evidence
+   ↓
+Agentの非決定的完了評価
+   ├─ 追加作業が必要 → 自律継続
+   ├─ 要求元判断が必要 → 確認
+   └─ 完了可能 → 再Stop
+```
+
+Agentは少なくとも次を再評価する。
+
+- タスク要求。
+- Planと実行結果。
+- 未解決事項。
+- 作業中に得られた新しい発見・洞察。
+- 発見によって当初の前提や要求の理解が変化していないか。
+
+vendorの `stop_hook_active` を、Stop hookによる継続後の再Stop識別に利用する。これによりrepository内へ合意状態や完了状態を永続化せず、一度の非決定的評価ループを形成する。
+
+再Stopでも決定的保証を再実行し、途中の追加作業によって保証が崩れていれば完了を拒否する。保証が引き続き成立していれば完了を許可する。
 
 ## モデル指摘
 
-### MF-S5-001 — repository stateだけでは、変更なしでタスクを完了してよいか判断できない
+### MF-S5-001 — 決定的な成果物状態だけではタスク完了を保証できない
 
-変更実装を要求されたタスクでAgentが何も変更しない場合でも、clean default branchかつ `local HEAD == GitHub HEAD` は成立し得る。このためrepository stateだけからタスク要求を推論してはならない。
+変更実装を要求されたタスクでAgentが何も変更しない場合でも、clean default branchかつ `local HEAD == GitHub HEAD` は成立し得る。また、変更とテストが正常に完了していても、探索中により重要な問題や要求の不足を発見している可能性がある。
 
-当初は、変更なし完了時に要求元との合意をS5で必須化する案を試行した。しかしStopをblockするだけでは、要求元確認後にも同じ判定へ戻り続ける。これを解消するために独自の合意状態やタスク分類をS5へ導入すると、S5の責任を不必要に拡大する。
+したがって、repository stateやdelivery gateの成功だけからタスク完了を導出してはならない。
 
-そこでMF-S5-001は、S5の保証範囲を次のように限定することで扱う。
+一方、非決定的な完了条件をすべて事前に分類・契約化することも採用しない。それでは未知の発見を既知の分類へ押し込め、RAEMがAgentへ期待する探索能力を弱める。
+
+採用する境界は次のとおり。
 
 ```text
-タスク要求
-  ↓
-Agent実行系
-  ├─ Plan / Auto
-  ├─ 探索・判断
-  └─ 必要時のみ要求元へ確認
-  ↓
-repository state
-  ↓
-S5
-  └─ repository delivery stateだけを決定的に保証
+既知で決定的に表現可能な完了条件
+          ↓
+      仕組みで保証
+          ↓
+        Evidence
+          ↓
+        Agent
+  ├─ タスク要求
+  ├─ Plan / 実行結果
+  ├─ 未解決事項
+  └─ 新しい発見・洞察
+          ↓
+   非決定的完了評価
+          ↓
+  継続 / 確認 / 完了
 ```
 
-S5は「タスク要求が満たされた」という主張を行わない。したがってrepository stateからタスク要求を推論する必要もない。
+この構造はRAEMの次の原則に従う。
 
-## 実装試行から得た根拠
+> 決定的に表現可能な既知の知識は仕組みに固定し、AIエージェントの非決定的能力は、未知の問題の探索と対象領域の進化に集中させる。
 
-一時的に、clean default branchをStop時にblockし、要求元との合意を要求する実装を試行した。その結果、合意をS5へ安全かつ単純に戻す経路がなければStopが循環することを確認した。この試行は撤回し、repository-state実装は元に戻した。
+## Evolutionへの接続
 
-この結果から、要求解釈・確認・合意形成をS5へ持ち込まず、既存AgentのPlan/Auto/approval等を利用する責任分担を採用する。
+完了時の非決定的評価で得られた発見は、単なるStop可否の材料ではなくEvolutionの入力である。
 
-## 既に固定済みの根拠
+```text
+非決定的探索・完了評価
+        ↓
+    新しい発見
+        ↓
+     一般化可能か
+        ↓
+      Evolution
+        ↓
+モデル / 規則 / Evidenceを改善
+```
 
-`reference/harness/tests/test_completion.py` はrepository-state側について、READY/default branch/clean/local HEAD/GitHub HEAD、RESTRICTED/BLOCKED、取得不能、HEAD不一致等を固定している。
+繰り返し現れる既知のパターンが一般化できた場合は、その部分を次のサイクルで決定的な保証へ移せる。未知の可能性そのものを事前に列挙して塞ぐことはしない。
+
+## 実装根拠
+
+- `reference/harness/completion.py`
+  - 決定的completion Evidenceを生成する。
+  - 最初のpassing Stopを一度blockし、Evidenceと非決定的完了評価の指示をAgentへ返す。
+  - `stop_hook_active` のfollow-up Stopでは決定的保証を再実行したうえで完了を許可する。
+- `reference/harness/tests/test_completion.py`
+  - no-change / delivery gate双方で最初のStopがAgent reviewへ移ることを固定する。
+  - follow-up Stopが循環せず完了できることを固定する。
+  - follow-up時でも決定的保証失敗を迂回できないことを固定する。
+
+Codexの一次実装ではStop payloadに `stop_hook_active` が含まれ、Stop hookがblockした後の継続を識別するために利用されている。S6では各vendor adapterがこの入力を共通S5処理へ透過的に渡す責任を持つ。
 
 ## レビュー結果
 
 - [x] 権威レビュー — repository-state権威は明確。
 - [x] 信頼境界レビュー — writable snapshot/local remote refを非権威化。
-- [x] 根拠完全性レビュー — S5の保証範囲をrepository delivery stateに限定。
-- [x] 失敗形態レビュー — repository-state取得不能は通常gateへfallback。
-- [x] 迂回レビュー — writable snapshot/local remote refによる迂回は排除。
-- [x] 責任分担レビュー — タスク要求解釈と確認はAgent実行系、repository delivery保証はS5。
-- [x] 保証欠落レビュー — MF-S5-001を保証範囲の明確化として処理。
-- [ ] 実装適合レビュー — PR #10の最新状態で再確認する。
+- [x] 根拠完全性レビュー — 決定的保証と非決定的完了評価の双方を完了経路に含めた。
+- [x] 失敗形態レビュー — 決定的Evidence取得不能・gate失敗は完了拒否。
+- [x] 迂回レビュー — `stop_hook_active` でも決定的保証を再実行する。
+- [x] 責任分担レビュー — 既知の決定的保証は仕組み、未知を含む意味評価はAgent。
+- [x] 保証欠落レビュー — MF-S5-001をAssuranceから非決定的評価への接続として処理。
+- [ ] 実装適合レビュー — CIとS6 vendor wiringで最終確認する。
 
 ## 収束判定
 
-S5は**実装適合の再確認待ち**。MF-S5-001は、追加のタスク要求管理機構を導入せず、S5の保証対象をrepository delivery stateへ限定することで解消した。今後、Plan/Auto等の実運用で確認過多や誤完了が具体的に観測された場合は、その実例をEvidenceとして次のEvolution対象とする。
+S5は**実装適合の再確認待ち**。MF-S5-001のモデル上の解決は、決定的完了条件を仕組みで保証し、そのEvidenceをAgentへ返したうえで非決定的完了評価を必須の一ターンとして残すことで具体化した。
