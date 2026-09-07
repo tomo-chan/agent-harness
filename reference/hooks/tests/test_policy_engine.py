@@ -97,8 +97,10 @@ def test_adapter_denies_when_trusted_policy_is_missing() -> None:
     assert decision["rule"] == "policy-error"
 
 
-def test_adapter_routes_policy_result_through_s3_publication_gate(monkeypatch) -> None:
-    """The trusted hook must invoke the composed S2/S3 publication path."""
+def test_adapter_routes_policy_result_through_s4_composed_publication_gate(
+    monkeypatch,
+) -> None:
+    """The trusted hook must execute S4 rather than leave review as a helper."""
     monkeypatch.setenv("AGENT_HARNESS_POLICY", str(POLICY))
     observed: dict[str, object] = {}
 
@@ -106,23 +108,19 @@ def test_adapter_routes_policy_result_through_s3_publication_gate(monkeypatch) -
         observed["raw"] = raw
         observed["command"] = normalized["input"]["command"]
         observed["policy_decision"] = result.decision
-        return Decision("deny", "blocked by composed authority", "repository-authority")
+        return Decision("ask", "control-plane review", "control-plane-publication")
 
-    monkeypatch.setattr(
-        pre_tool_use_adapter,
-        "validate_autonomous_publication",
-        fake_publication,
-    )
+    monkeypatch.setattr(pre_tool_use_adapter, "validate_publication", fake_publication)
     raw = {
         "tool": "exec",
         "input": {"command": "git push origin HEAD:refs/heads/feature/x"},
         "cwd": str(ROOT),
-        "session_id": "adapter-s3-test",
+        "session_id": "adapter-s4-test",
     }
 
     result = pre_tool_use_adapter.evaluate(raw)
 
-    assert result.decision == "deny"
-    assert result.rule == "repository-authority"
+    assert result.decision == "ask"
+    assert result.rule == "control-plane-publication"
     assert observed["policy_decision"] == "allow"
     assert observed["command"] == "git push origin HEAD:refs/heads/feature/x"
