@@ -36,6 +36,19 @@ def test_authority_refresh_does_not_trust_cached_ready_report(
     assert result.state == "BLOCKED"
 
 
+def test_cache_write_failure_does_not_discard_fresh_authority(
+    tmp_path: Path, monkeypatch
+) -> None:
+    refreshed = _report("BLOCKED", tmp_path)
+    monkeypatch.setattr(authority, "check_repository_posture", lambda _cwd: refreshed)
+
+    def fail_cache(*_args, **_kwargs):
+        raise OSError("read-only state directory")
+
+    monkeypatch.setattr(authority, "save_cached_posture", fail_cache)
+    assert authority.refresh_repository_posture(_raw(tmp_path)) is refreshed
+
+
 def test_context_cache_is_not_used_when_expired(tmp_path: Path, monkeypatch) -> None:
     cached = SimpleNamespace(
         state="READY",
@@ -54,6 +67,16 @@ def test_context_cache_is_not_used_when_expired(tmp_path: Path, monkeypatch) -> 
         )
         is None
     )
+
+
+def test_mutation_classifier_only_allows_positive_read_only_forms() -> None:
+    assert authority.is_mutation({"tool": "read", "input": {"path": "README.md"}}) is False
+    assert authority.is_mutation({"tool": "bash", "input": {"command": "git status"}}) is False
+    assert authority.is_mutation({"tool": "bash", "input": {"command": "git branch --list"}}) is False
+    assert authority.is_mutation({"tool": "bash", "input": {"command": "git branch -D feature/x"}}) is True
+    assert authority.is_mutation({"tool": "bash", "input": {"command": "find . -delete"}}) is True
+    assert authority.is_mutation({"tool": "mcp_delete", "input": {"resource": "x"}}) is True
+    assert authority.is_mutation({"tool": "unknown", "input": {}}) is True
 
 
 def test_blocked_authority_denies_mutation_before_approval(
