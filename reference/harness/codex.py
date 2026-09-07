@@ -3,7 +3,20 @@
 
 from __future__ import annotations
 
-from vendor_runtime import completion, emit, evaluate_pre_tool_use, read_stdin, session_start_context
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from reference.harness.vendor_runtime import (  # noqa: E402
+    completion,
+    emit,
+    evaluate_pre_tool_use,
+    read_stdin,
+    session_start_context,
+)
 
 
 def main() -> int:
