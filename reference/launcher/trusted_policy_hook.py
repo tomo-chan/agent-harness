@@ -14,6 +14,13 @@ import sys
 from pathlib import Path
 
 _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_PYTHON_STARTUP_ENV = {
+    "PYTHONHOME",
+    "PYTHONPATH",
+    "PYTHONSTARTUP",
+    "PYTHONUSERBASE",
+    "PYTHONINSPECT",
+}
 
 
 def _inside(root: Path, path: Path) -> bool:
@@ -47,6 +54,19 @@ def _trusted_repository() -> str | None:
             "AGENT_HARNESS_TRUSTED_EXPECTED_REPOSITORY must be owner/repository"
         )
     return value
+
+
+def _sanitize_python_startup_environment() -> None:
+    """Remove inherited Python startup controls before entering trusted code.
+
+    Repository-controlled startup variables must not influence the fresh Python
+    interpreter used for the trusted adapter. The adapter is also launched with
+    ``-I`` so user site packages and environment-based Python path configuration
+    remain disabled even when this launcher itself was not started in isolated
+    mode.
+    """
+    for name in _PYTHON_STARTUP_ENV:
+        os.environ.pop(name, None)
 
 
 def main() -> int:
@@ -98,7 +118,8 @@ def main() -> int:
     os.environ.pop("AGENT_POLICY", None)
     os.environ.pop("AGENT_HARNESS_REPOSITORY_SECURITY_POLICY", None)
     os.environ.pop("AGENT_HARNESS_MINIMUM_POSTURE_MODE", None)
-    os.execv(sys.executable, [sys.executable, str(adapter)])
+    _sanitize_python_startup_environment()
+    os.execv(sys.executable, [sys.executable, "-I", str(adapter)])
     return 127
 
 
