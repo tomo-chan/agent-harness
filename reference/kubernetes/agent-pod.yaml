@@ -14,6 +14,15 @@ spec:
       image: example.invalid/agent-harness:latest
       workingDir: /workspace
       command: ["sleep", "infinity"]
+      env:
+        - name: AGENT_HARNESS_TRUSTED_ROOT
+          value: /opt/agent-harness
+        - name: AGENT_HARNESS_TRUSTED_POLICY
+          value: /opt/agent-harness/reference/policies/policy.example.json
+        - name: AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY
+          value: /opt/agent-harness/reference/policies/repository-security.example.json
+        - name: PYTHONDONTWRITEBYTECODE
+          value: "1"
       securityContext:
         allowPrivilegeEscalation: false
         privileged: false
@@ -41,9 +50,14 @@ spec:
     - name: tmp
       emptyDir: {}
 
-# Production notes:
-# - replace the placeholder image and pin it by digest;
-# - use workload identity only when cloud access is required;
+# Production assurance notes:
+# - keep one Pod / one unprivileged agent container unless a concrete threat model requires more isolation;
+# - pin the image by digest and bake the approved harness snapshot into /opt/agent-harness;
+# - never populate /opt/agent-harness from /workspace or another agent-writable volume;
+# - readOnlyRootFilesystem keeps the baked /opt/agent-harness outside the mutable workspace boundary;
+# - provision AGENT_HARNESS_TRUSTED_EXPECTED_REPOSITORY from trusted deployment configuration when repository identity must be fixed;
+# - project-local vendor hook files are reference wiring; managed/trusted registration should invoke /opt/agent-harness/reference/launcher/trusted_hook.py where supported;
 # - do not mount Docker/container-runtime sockets or hostPath volumes;
-# - prefer a dedicated ServiceAccount with minimum RBAC/IAM;
-# - add an external credential broker for short-lived SCM credentials.
+# - use workload identity only when required and bind it to minimum external permissions;
+# - prefer short-lived, repository-scoped SCM credentials with least privilege and GitHub-side rulesets;
+# - credential compromise remains a possible failure mode; Sandbox, IAM, and SCM server-side controls contain its blast radius.

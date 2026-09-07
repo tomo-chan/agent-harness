@@ -1,0 +1,14 @@
+# Simple Codex profile for agent-harness.
+# The agent uses native git/gh inside the sandbox. Credential exposure is reduced
+# by sandbox/policy controls; blast radius is contained by short-lived SCM credentials,
+# least-privilege GitHub permissions, and repository rulesets.
+
+sandbox_mode = "workspace-write"
+approval_policy = "never"
+allow_login_shell = false
+
+[sandbox_workspace_write]
+network_access = true
+
+[history]
+persistence = "none"
