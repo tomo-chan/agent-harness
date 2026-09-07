@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Normalize generic PreToolUse input and apply S1-S3 guarantee logic.
+"""Normalize generic PreToolUse input and apply S1-S4 guarantee logic.
 
-S1 supplies the trusted policy path. S2 applies repository authority before
-ordinary approval. S3 classifies direct SCM publication and validates the narrow
-autonomous publication forms without taking on S4 control-plane review.
+S1 supplies trusted policy, S2 applies repository authority, S3 validates narrow
+SCM publication semantics, and S4 requires explicit review when the actual
+publication diff changes Agent Harness control-plane paths.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ HARNESS_DIR = ROOT / "reference" / "harness"
 if str(HARNESS_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESS_DIR))
 
+from control_plane_publication import validate_publication  # noqa: E402
 from policy_engine import Decision, PolicyEngine  # noqa: E402
-from scm_publication import validate_autonomous_publication  # noqa: E402
 
 
 def normalize(raw: dict) -> dict:
@@ -37,7 +37,7 @@ def normalize(raw: dict) -> dict:
 
 
 def evaluate(raw: dict) -> Decision:
-    """Evaluate trusted policy, S2 authority, and S3 publication semantics."""
+    """Evaluate trusted policy and the composed S2-S4 publication guarantees."""
     policy_value = os.environ.get("AGENT_HARNESS_POLICY")
     if not policy_value:
         return Decision(
@@ -48,7 +48,7 @@ def evaluate(raw: dict) -> Decision:
     try:
         action = normalize(raw)
         result = PolicyEngine.from_file(Path(policy_value)).evaluate(action)
-        return validate_autonomous_publication(raw, action, result)
+        return validate_publication(raw, action, result)
     except Exception as exc:  # The hook boundary must never fail open.
         return Decision("deny", f"policy evaluation failed: {exc}", "policy-error")
 
