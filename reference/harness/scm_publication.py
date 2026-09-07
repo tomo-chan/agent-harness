@@ -7,6 +7,7 @@ control-plane publication review belongs to S4 and is intentionally absent here.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -14,6 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Sequence
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -61,26 +63,20 @@ def has_compound_shell(command: str) -> bool:
 
 
 def is_scm_publication(action: dict[str, Any]) -> bool:
-    """Detect recognizable direct SCM publication anywhere in observed shell text.
-
-    Detection is intentionally broader than the autonomous canonical forms so a
-    compound shell such as ``git status && git push ...`` is still classified as
-    a restricted publication before approval. Aliases, arbitrary child processes,
-    and credential misuse remain outside S3's observation boundary.
-    """
+    """Detect recognizable SCM publication anywhere in observed shell text."""
     return bool(_SCM_PUBLICATION_RE.search(_command(action)))
 
 
-def _run_git(cwd: Path, args: Sequence[str]) -> tuple[str | None, str | None]:
-    """Run one bounded Git observation and return ``(stdout, error)``."""
+def _run(command: Sequence[str], cwd: Path, timeout: int) -> tuple[str | None, str | None]:
+    """Run one bounded observation command and return ``(stdout, error)``."""
     try:
         result = subprocess.run(
-            ["git", *args],
+            list(command),
             cwd=cwd,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=5,
+            timeout=timeout,
             check=False,
         )
     except Exception as exc:
@@ -90,14 +86,35 @@ def _run_git(cwd: Path, args: Sequence[str]) -> tuple[str | None, str | None]:
     return result.stdout.strip(), None
 
 
+def _run_git(cwd: Path, args: Sequence[str]) -> tuple[str | None, str | None]:
+    """Run one bounded Git observation."""
+    return _run(["git", *args], cwd, 5)
+
+
+def _github_branch_head(
+    cwd: Path, repository: str, branch: str
+) -> tuple[str | None, str | None]:
+    """Return the branch head directly from the checked GitHub repository."""
+    endpoint = f"repos/{repository}/git/ref/heads/{quote(branch, safe='')}"
+    raw, error = _run(["gh", "api", endpoint], cwd, 15)
+    if raw is None:
+        return None, error
+    try:
+        value = json.loads(raw)
+        sha = value.get("object", {}).get("sha") if isinstance(value, dict) else None
+    except Exception as exc:
+        return None, f"invalid GitHub branch-ref JSON: {exc}"
+    if not isinstance(sha, str) or not sha:
+        return None, "GitHub branch-ref response does not contain object.sha"
+    return sha, None
+
+
 def _current_branch(cwd: Path, rule: str) -> tuple[str | None, Decision | None]:
     """Resolve a named current branch or return a denial for detached state."""
     branch, error = _run_git(cwd, ["branch", "--show-current"])
     if error or not branch:
         return None, Decision(
-            "deny",
-            f"cannot determine current branch: {error or 'detached HEAD'}",
-            rule,
+            "deny", f"cannot determine current branch: {error or 'detached HEAD'}", rule
         )
     return branch, None
 
@@ -123,22 +140,16 @@ def _checked_push_destination(cwd: Path, repository: str, rule: str) -> Decision
     push_urls = [line.strip() for line in urls.splitlines() if line.strip()]
     if len(push_urls) != 1:
         return Decision(
-            "deny",
-            "canonical push requires exactly one effective origin push URL",
-            rule,
+            "deny", "canonical push requires exactly one effective origin push URL", rule
         )
     if parse_github_repository(push_urls[0]) != repository:
         return Decision(
-            "deny",
-            "effective origin push URL does not match the checked repository",
-            rule,
+            "deny", "effective origin push URL does not match the checked repository", rule
         )
     mirror, _ = _run_git(cwd, ["config", "--bool", "--get", "remote.origin.mirror"])
     if mirror and mirror.lower() == "true":
         return Decision(
-            "deny",
-            "remote.origin.mirror is incompatible with canonical publication",
-            rule,
+            "deny", "remote.origin.mirror is incompatible with canonical publication", rule
         )
     return None
 
@@ -148,17 +159,13 @@ def _ready_report(raw: dict[str, Any]) -> tuple[Any | None, Decision | None]:
     report = authority.current_repository_posture(raw, refresh_for_authority=True)
     if report is None:
         return None, Decision(
-            "deny",
-            "repository authority is unavailable for SCM publication",
-            "repository-authority",
+            "deny", "repository authority is unavailable for SCM publication", "repository-authority"
         )
     if report.state != "READY":
         return report, Decision("deny", report.summary(), "repository-authority")
     if not report.repository or not report.default_branch:
         return report, Decision(
-            "deny",
-            "checked repository/default branch is unavailable",
-            "repository-authority",
+            "deny", "checked repository/default branch is unavailable", "repository-authority"
         )
     return report, None
 
@@ -167,8 +174,7 @@ def _validate_push(
     raw: dict[str, Any], action: dict[str, Any], report: Any
 ) -> Decision | None:
     """Validate the canonical autonomous Git push contract."""
-    command = _command(action)
-    tokens = _shell_tokens(command)
+    tokens = _shell_tokens(_command(action))
     if not tokens or tokens[:2] != ["git", "push"]:
         return Decision("deny", "invalid canonical push command", "canonical-git-push")
 
@@ -179,9 +185,7 @@ def _validate_push(
     assert branch is not None
     if branch == report.default_branch:
         return Decision(
-            "deny",
-            f"direct push to default branch {branch} is prohibited",
-            "canonical-git-push",
+            "deny", f"direct push to default branch {branch} is prohibited", "canonical-git-push"
         )
 
     refspec = f"HEAD:refs/heads/{branch}"
@@ -203,8 +207,7 @@ def _validate_push(
         return denied
 
     upstream, upstream_error = _run_git(
-        cwd,
-        ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]
     )
     expected_upstream = f"origin/{branch}"
     if form == normal_form:
@@ -240,9 +243,8 @@ def _has_pr_target_override(tokens: list[str]) -> bool:
 def _validate_pr_create(
     raw: dict[str, Any], action: dict[str, Any], report: Any
 ) -> Decision | None:
-    """Validate autonomous PR creation against the checked current branch."""
-    command = _command(action)
-    tokens = _shell_tokens(command)
+    """Require PR creation from the published current branch of the checked repo."""
+    tokens = _shell_tokens(_command(action))
     if not tokens or tokens[:3] != ["gh", "pr", "create"]:
         return Decision("deny", "invalid PR creation command", "canonical-pr-create")
     if _has_pr_target_override(tokens):
@@ -268,14 +270,28 @@ def _validate_pr_create(
         return denied
 
     upstream, upstream_error = _run_git(
-        cwd,
-        ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]
     )
     expected = f"origin/{branch}"
     if upstream_error or upstream != expected:
         return Decision(
             "deny",
-            f"autonomous PR creation requires published branch upstream {expected}",
+            f"autonomous PR creation requires upstream {expected}",
+            "canonical-pr-create",
+        )
+
+    local_head, local_error = _run_git(cwd, ["rev-parse", "HEAD"])
+    remote_head, remote_error = _github_branch_head(cwd, report.repository, branch)
+    if local_error or remote_error or not local_head or not remote_head:
+        return Decision(
+            "deny",
+            "cannot establish the published current branch head on the checked GitHub repository",
+            "canonical-pr-create",
+        )
+    if local_head != remote_head:
+        return Decision(
+            "deny",
+            "current local HEAD is not the published head of the checked GitHub branch",
             "canonical-pr-create",
         )
     return None
