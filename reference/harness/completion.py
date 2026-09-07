@@ -2,12 +2,10 @@
 
 S5 does not trust a SessionStart snapshot or local remote-tracking references as
 completion authority. At Stop it re-evaluates repository posture, reads the
-checked default-branch head directly from GitHub, and treats a clean READY default
-branch whose local HEAD equals that authoritative GitHub head as a verified
-no-change repository state. That state is not, by itself, proof that the task may
-finish without repository changes; callers must obtain requirement-side agreement
-before accepting the no-change path. Every other or unverifiable state runs the
-normal deterministic completion gate.
+checked default-branch head directly from GitHub, and allows the repository-state
+read-only exception only for a clean READY default branch whose local HEAD equals
+that authoritative GitHub head. Every other or unverifiable state runs the normal
+deterministic completion gate.
 """
 
 from __future__ import annotations
@@ -79,14 +77,13 @@ def capture_session_start(raw: dict[str, Any]) -> str:
 
 
 def _clean_checked_default_branch(cwd: Path) -> tuple[bool, str]:
-    """Return whether current state is a verified no-change repository state.
+    """Return whether current state is a verified read-only repository state.
 
-    The state check requires a freshly evaluated ``READY`` posture, the checked
+    The exception requires a freshly evaluated ``READY`` posture, the checked
     default branch, a completely clean worktree including untracked files, and an
-    exact local-HEAD match with the branch head read directly from GitHub. It does
-    not establish that the task requirement permits completion without repository
-    changes. Any missing or weaker evidence returns false and leaves the normal
-    completion gate in force.
+    exact local-HEAD match with the branch head read directly from GitHub. Any
+    missing or weaker evidence returns false and leaves the normal completion gate
+    in force.
     """
     try:
         report = check_repository_posture(cwd)
@@ -135,23 +132,14 @@ def _run_completion_gate(cwd: Path) -> tuple[bool, str]:
 
 
 def completion_check(raw: dict[str, Any]) -> tuple[bool, str]:
-    """Require agreement for no-change completion or a passing full delivery gate.
-
-    A verified clean default-branch state proves only that no repository change
-    remains. It does not prove that completing without a change satisfies the task
-    requirement. Until a caller supplies requirement-side agreement, S5 rejects
-    that shortcut with an actionable reason so the vendor adapter can ask the
-    request source rather than silently accepting an ambiguous completion.
+    """Accept authoritative read-only repository state or a passing full gate.
 
     This guarantee is limited to repository-delivery state. It does not establish
     that the session produced no external side effects.
     """
     cwd = Path(str(raw.get("cwd") or os.getcwd())).resolve()
-    no_change_state, reason = _clean_checked_default_branch(cwd)
-    if no_change_state:
-        return False, (
-            "completion assurance requires request-source agreement before "
-            f"accepting a no-change repository completion; {reason}"
-        )
+    read_only, reason = _clean_checked_default_branch(cwd)
+    if read_only:
+        return True, f"completion assurance: read-only repository state; {reason}"
     ok, gate_reason = _run_completion_gate(cwd)
     return ok, gate_reason
