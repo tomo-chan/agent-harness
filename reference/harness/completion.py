@@ -1,11 +1,12 @@
-"""Deterministic completion assurance without mutable local authority.
+"""Connect deterministic completion evidence to agent completion review.
 
 S5 does not trust a SessionStart snapshot or local remote-tracking references as
-completion authority. At Stop it re-evaluates repository posture, reads the
-checked default-branch head directly from GitHub, and allows the repository-state
-read-only exception only for a clean READY default branch whose local HEAD equals
-that authoritative GitHub head. Every other or unverifiable state runs the normal
-deterministic completion gate.
+completion authority. At Stop it re-evaluates repository posture and delivery
+evidence. A passing deterministic assurance is evidence for the agent; it is not
+by itself a claim that the task is semantically complete. The first passing Stop
+therefore asks the agent to review task requirements, execution results, and new
+discoveries. A subsequent Stop marked ``stop_hook_active`` may complete if the
+deterministic assurance still passes.
 """
 
 from __future__ import annotations
@@ -77,7 +78,7 @@ def capture_session_start(raw: dict[str, Any]) -> str:
 
 
 def _clean_checked_default_branch(cwd: Path) -> tuple[bool, str]:
-    """Return whether current state is a verified read-only repository state.
+    """Return whether current state is a verified no-change repository state.
 
     The exception requires a freshly evaluated ``READY`` posture, the checked
     default branch, a completely clean worktree including untracked files, and an
@@ -131,15 +132,38 @@ def _run_completion_gate(cwd: Path) -> tuple[bool, str]:
     return completed.returncode == 0, output or f"completion gate exited {completed.returncode}"
 
 
-def completion_check(raw: dict[str, Any]) -> tuple[bool, str]:
-    """Accept authoritative read-only repository state or a passing full gate.
+def _deterministic_completion_evidence(cwd: Path) -> tuple[bool, str]:
+    """Return deterministic completion evidence without claiming task completion."""
+    no_change, reason = _clean_checked_default_branch(cwd)
+    if no_change:
+        return True, f"repository has no delivery delta; {reason}"
+    return _run_completion_gate(cwd)
 
-    This guarantee is limited to repository-delivery state. It does not establish
-    that the session produced no external side effects.
+
+def completion_check(raw: dict[str, Any]) -> tuple[bool, str]:
+    """Require agent review after deterministic completion assurance passes.
+
+    Deterministic assurance proves only known, mechanically expressible completion
+    conditions. On the first passing Stop, S5 returns that evidence to the agent
+    and asks it to evaluate the non-deterministic conditions: task requirements,
+    execution results, unresolved concerns, and discoveries made during the work.
+    The agent may continue autonomously, ask the requester when genuinely needed,
+    or attempt Stop again. ``stop_hook_active`` identifies that follow-up Stop and
+    avoids persisting mutable agreement state in the repository.
     """
     cwd = Path(str(raw.get("cwd") or os.getcwd())).resolve()
-    read_only, reason = _clean_checked_default_branch(cwd)
-    if read_only:
-        return True, f"completion assurance: read-only repository state; {reason}"
-    ok, gate_reason = _run_completion_gate(cwd)
-    return ok, gate_reason
+    assured, evidence = _deterministic_completion_evidence(cwd)
+    if not assured:
+        return False, evidence
+
+    if bool(raw.get("stop_hook_active")):
+        return True, f"completion assurance passed after agent review; {evidence}"
+
+    return False, (
+        "Deterministic completion assurance passed. Evidence: "
+        f"{evidence}. Before completing, evaluate the non-deterministic completion "
+        "conditions against the task requirements, your plan and execution results, "
+        "and any new findings or insights discovered during the work. Continue the "
+        "task autonomously if more work is warranted; ask the requester only when "
+        "their decision is genuinely required; otherwise attempt Stop again."
+    )
