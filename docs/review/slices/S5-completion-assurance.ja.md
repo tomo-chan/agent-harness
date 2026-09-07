@@ -2,46 +2,48 @@
 
 ## 状態
 
-実装移植とレビューを完了。完了判定をSessionStart時点の書込み可能な状態から切り離し、Stop時の現在状態だけで読み取り専用例外または通常の決定的完了検査を選択する保証境界として具体化した。
+**再レビュー中。** 実装移植後のCodex Reviewにより、現在のrepository stateだけでは「読み取り専用タスクが完了した」のか「変更が必要なタスクを何もせず終了した」のかを識別できないモデル指摘が発見された。この指摘が解消するまでS5を収束状態とはしない。
 
 ## 主張
 
 1. 書込み可能なSessionStartスナップショットを完了判定の権威にしない。
 2. Stop時に現在のリポジトリ保護状態とGit状態を再評価する。
-3. `READY` で、クリーンな確認済み既定ブランチの `HEAD` がGitHubから直接取得した先頭SHAと一致する場合だけ、リポジトリ成果物について読み取り専用と判断する。
-4. それ以外または確認不能時は決定的完了検査を実行する。
+3. repository stateがGitHub default branchと一致することだけでは、タスクが読み取り専用であったことを証明しない。
+4. 成果物向け完了検査を省略するには、repository stateの一致に加えて、独立した信頼済み根拠から「このタスクはrepository変更を要求しない」と確立できなければならない。
+5. タスク意図を信頼済み根拠から確立できない場合、またはrepository stateを確認できない場合は決定的完了検査を実行する。
 
 ## 権威と責任境界
 
-- モデル上の前提: S1、S2。物理的な積層順序上はS4の後に配置するが、S3/S4を意味論上の前提とはしない。
-- 権威:
+- モデル上の前提: S1、S2。
+- repository-state権威:
   - S2の現在のrepository posture。
   - 確認済みGitHub repositoryから直接取得したdefault branch head SHA。
+- task-intent権威:
+  - **未具体化。** 評価対象repositoryと同じ権限で書換え可能なSessionStart cacheやagent自己申告は権威にできない。
+  - trusted control plane、trusted launcher input、または同等の独立したタスク分類根拠を候補として具体化する必要がある。
 - 観測:
-  - 現在branch。
-  - worktreeのcleanliness（untrackedを含む）。
-  - ローカルHEAD。
+  - 現在branch、worktree cleanliness、local HEAD。
 - 非権威:
-  - SessionStart時点のcompletion snapshot。
-  - `origin/<default>` 等のローカルremote-tracking ref。
+  - 書込み可能なSessionStart completion snapshot。
+  - `origin/<default>` 等のlocal remote-tracking ref。
+  - agentによる「変更不要だった」という自己申告。
 - 決定的な代替保証:
   - `reference/scripts/completion_gate.sh`。
 - 対象外:
-  - セッション中に外部副作用が一切なかったことの証明。
-  - 外部サービスへ行った変更の完全な追跡。
-  - vendor固有Stopイベントへの接続: S6。
+  - セッション中の外部副作用不存在の証明。
+  - 外部サービス変更の完全追跡。
+  - vendor固有Stop wiring: S6。
 
 ## 保証契約
 
 ### SessionStart
 
-- 完了判定用の権威あるbaseline fileを保存しない。
-- SessionStartは「Stop時に再評価する」というcontextだけを返す。
-- 評価対象リポジトリと同じOS identityから書換え可能なローカル状態を独立した完了権威とはみなさない。
+- repositoryと同じ権限で書換え可能なbaseline fileを完了権威として保存しない。
+- task intentを利用する場合、それは評価対象から独立した信頼境界で確立されなければならない。
 
-### 読み取り専用repository-state例外
+### repository-state一致
 
-通常の成果物向け完了検査を省略できるのは、次をすべて満たす場合だけとする。
+次をすべて満たすと「現在のrepository成果物がGitHub default branchと一致する」ことだけを確立できる。
 
 1. Stop時のrepository postureが `READY`。
 2. repository identityとdefault branchが現在の根拠から確定している。
@@ -51,90 +53,54 @@
 6. 確認済みGitHub repositoryからdefault branch head SHAを直接取得できる。
 7. local `HEAD == GitHub default branch head SHA`。
 
-上記のどれかが成立しない場合は読み取り専用とは判定しない。
+この条件だけから「タスクが読み取り専用だった」と推論してはならない。
 
-### 通常完了検査へのフォールバック
+### 完了検査省略条件
 
-- feature branch、dirty worktree、`RESTRICTED`、`BLOCKED`、posture取得不能、GitHub取得不能、HEAD不一致は、通常の決定的完了検査へ送る。
-- 「確認できない」ことを読み取り専用成功へ変換しない。
-- 完了検査自体の実行エラー・timeoutはfail-closedとする。
+通常の成果物向け完了検査を省略できるのは、次の両方を独立に確立できる場合だけとする。
 
-## 具体化
+- repository-state一致。
+- 信頼済みtask intentがrepository変更を要求しないこと。
 
-### `reference/harness/completion.py`
+task intentの権威が未確立・取得不能・曖昧な場合は通常完了検査へ送る。
 
-- SessionStartで権威baselineを保存しない。
-- Stop時にrepository postureを再評価する。
-- default branch / clean worktree / local HEADを現在観測する。
-- GitHub default branch headを直接取得する。
-- 読み取り専用repository-state例外または通常completion gateを選択する。
+## モデル指摘
 
-### `reference/scripts/completion_gate.sh`
+### MF-S5-001 — repository stateからtask intentを推論できない
 
-読み取り専用例外が成立しない場合の決定的なdelivery gate。現在branch、dirty state、verification command、commit存在、upstream等のrepository delivery条件を検査する。
+変更実装を要求されたタスクでagentが何も変更しない、または変更を破棄してStopした場合でも、clean default branchかつ `local HEAD == GitHub HEAD` は成立する。この状態は成功したread-only taskと区別できない。
 
-S5の読み取り専用例外とこのgateは役割が異なる。前者は「成果物向けgateを省略できるほど現在repositoryが権威状態と一致しているか」を判定し、後者は通常の変更セッションに対するdelivery completionを判定する。
+したがって旧主張「cleanな確認済みdefault branchならread-only repository-state例外」は根拠不足であり、実装適合の局所修正では解決できない。
 
-## 決定的な根拠
-
-### `reference/harness/tests/test_completion.py`
-
-- SessionStartが権威baselineを保存しないこと。
-- cleanな `READY` default branch + GitHub head一致だけがgateを省略すること。
-- `RESTRICTED` default branchはgateを省略しないこと。
-- feature branchはgateを実行すること。
-- dirty default branchはgateを実行すること。
-- local/GitHub HEAD不一致はgateを実行すること。
-- ローカル `origin/main` を完了権威にしないこと。
-- GitHub head取得不能時はgateを実行すること。
-- posture評価不能・`BLOCKED` はgateを実行すること。
-
-## 具体化で判明した指摘
-
-### `RESTRICTED` を読み取り専用例外に含めていた
-
-PR #1の元実装は次の条件だった。
+必要な進化は次のとおり。
 
 ```text
-BLOCKED ではない
-+ repository/default branchが取得できる
-+ clean default branch
-+ local HEAD == GitHub HEAD
+タスク意図
+  ↓ 独立した信頼済み権威
+変更要求あり / 変更要求なし
+  ↓
+Stop時repository state
+  ↓
+完了検査省略可否
 ```
 
-このため、repository identityやGitHub保護根拠が不足して `RESTRICTED` になっていても、他の条件が揃えば通常completion gateを省略できた。
+書込み可能なSessionStart snapshotを導入するだけではS5主張1と信頼境界に反するため採用しない。
 
-S5の主張は「確認済み既定ブランチ」であり、S2では完全に確認できた権威状態を `READY` と定義している。このため読み取り専用例外を `report.state == READY` に限定した。
+## 既に固定済みの根拠
 
-これは権威状態を「拒否対象かどうか」だけで解釈せず、その状態がどの保証に十分な根拠を持つかで判断すべきことを示す。
+`reference/harness/tests/test_completion.py` はrepository-state側について、READY/default branch/clean/local HEAD/GitHub HEAD、RESTRICTED/BLOCKED、取得不能、HEAD不一致等を固定している。ただしMF-S5-001に対応するtask-intent保証は未実装であり、追加の決定的テストが必要である。
 
 ## レビュー結果
 
-- [x] 権威レビュー
-  - repository postureとGitHub default branch headを現在の権威とした。
-- [x] 信頼境界レビュー
-  - SessionStart snapshotとlocal remote-tracking refを権威から除外した。
-- [x] 根拠完全性レビュー
-  - READY、default branch、cleanliness、local HEAD、GitHub HEADの全条件を要求した。
-- [x] 失敗形態レビュー
-  - posture/Git/GitHub取得不能、dirty、branch不一致、HEAD不一致を通常gateへフォールバックする。
-- [x] 迂回レビュー
-  - writable snapshotや `origin/main` の書換えで読み取り専用例外を成立させられない。
-- [x] 責任分担レビュー
-  - repository authority=S2、completion=S5、vendor Stop wiring=S6へ分離した。
-- [x] 保証欠落レビュー
-  - 外部副作用の不存在は保証しないことを明示した。
-- [x] 実装適合レビュー
-  - PR #1のcompletion実装を移植し、RESTRICTED例外の保証不一致を修正した。
-
-## 残存リスクと対象外
-
-- 読み取り専用例外が証明するのはrepository成果物について現在のローカル状態がGitHub default branchと一致していることであり、セッション中に外部副作用がなかったことではない。
-- completion gateのrepository固有verification内容は配備・対象repository側の設定責任を含む。
-- Stopイベントが必ずこのcompletion保証を呼ぶことはvendor接続の責任であり、S6で具体化する。
+- [x] 権威レビュー — repository-state権威は明確。
+- [x] 信頼境界レビュー — writable snapshot/local remote refを非権威化。
+- [ ] 根拠完全性レビュー — **task intentの独立根拠が不足。**
+- [x] 失敗形態レビュー — repository-state取得不能は通常gateへfallback。
+- [x] 迂回レビュー — writable snapshot/local remote refによる迂回は排除。
+- [ ] 責任分担レビュー — **task-intent権威をどの層が供給するか未確定。**
+- [ ] 保証欠落レビュー — **MF-S5-001を解消する必要がある。**
+- [ ] 実装適合レビュー — モデル更新後に再実施する。
 
 ## 収束判定
 
-S5のレビューで、元実装が `RESTRICTED` を読み取り専用例外へ含め得ることを発見し、`READY` のみへ保証条件を強化した。SessionStart snapshotやlocal remote-tracking refを権威にせず、確認不能な状態は通常の決定的completion gateへ戻す経路をテストへ固定した。
-
-現時点でS5内部に新たなマージ阻害指摘は残っていない。S6によるStopイベント接続を外部依存として、S5は収束状態とする。
+S5は現在**未収束**。MF-S5-001「repository stateからtask intentを推論できない」がマージ阻害のモデル指摘として残っている。task-intent権威と保証契約を具体化し、実装・決定的テストへ固定した後に再レビューする。
