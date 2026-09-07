@@ -10,6 +10,7 @@ BRANCH = "feature/review-fix"
 REFSPEC = f"HEAD:refs/heads/{BRANCH}"
 NORMAL_PUSH = f"git push origin {REFSPEC}"
 FIRST_PUSH = f"git push --set-upstream origin {REFSPEC}"
+HEAD = "abc123"
 
 
 def _raw(tmp_path: Path, command: str) -> dict:
@@ -50,6 +51,7 @@ def _published_feature_git(_cwd: Path, args):
             f"origin/{BRANCH}",
             None,
         ),
+        ("rev-parse", "HEAD"): (HEAD, None),
     }
     return values[tuple(args)]
 
@@ -66,6 +68,11 @@ def _allow_publication(tmp_path: Path, monkeypatch, command: str, fake_git):
         lambda *args, **kwargs: _report("READY"),
     )
     monkeypatch.setattr(scm_publication, "_run_git", fake_git)
+    monkeypatch.setattr(
+        scm_publication,
+        "_github_branch_head",
+        lambda cwd, repository, branch: (HEAD, None),
+    )
     return scm_publication.validate_autonomous_publication(
         _raw(tmp_path, command),
         _action(command),
@@ -89,11 +96,7 @@ def test_restricted_authority_precedes_publication_semantics(
         observed["restricted_operation"] = restricted_operation
         return Decision("deny", "restricted", "repository-authority")
 
-    monkeypatch.setattr(
-        scm_publication.authority,
-        "enforce_repository_authority",
-        fake_authority,
-    )
+    monkeypatch.setattr(scm_publication.authority, "enforce_repository_authority", fake_authority)
     result = scm_publication.validate_autonomous_publication(
         _raw(tmp_path, NORMAL_PUSH),
         _action(NORMAL_PUSH),
@@ -105,28 +108,16 @@ def test_restricted_authority_precedes_publication_semantics(
     assert observed["restricted_operation"] is True
 
 
-def test_noncanonical_push_is_not_autonomously_allowed(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_noncanonical_push_is_not_autonomously_allowed(tmp_path: Path, monkeypatch) -> None:
     result = _allow_publication(
-        tmp_path,
-        monkeypatch,
-        "git push origin feature/review-fix",
-        _published_feature_git,
+        tmp_path, monkeypatch, "git push origin feature/review-fix", _published_feature_git
     )
     assert result.decision == "deny"
     assert result.rule == "canonical-git-push"
 
 
-def test_canonical_push_allows_checked_current_branch(
-    tmp_path: Path, monkeypatch
-) -> None:
-    result = _allow_publication(
-        tmp_path,
-        monkeypatch,
-        NORMAL_PUSH,
-        _published_feature_git,
-    )
+def test_canonical_push_allows_checked_current_branch(tmp_path: Path, monkeypatch) -> None:
+    result = _allow_publication(tmp_path, monkeypatch, NORMAL_PUSH, _published_feature_git)
     assert result.decision == "allow"
 
 
@@ -158,10 +149,7 @@ def test_canonical_push_denies_origin_mismatch(tmp_path: Path, monkeypatch) -> N
     def fake_git(_cwd: Path, args):
         values = {
             ("branch", "--show-current"): (BRANCH, None),
-            ("remote", "get-url", "origin"): (
-                "https://github.com/other/repository.git",
-                None,
-            ),
+            ("remote", "get-url", "origin"): ("https://github.com/other/repository.git", None),
         }
         return values[tuple(args)]
 
@@ -170,9 +158,7 @@ def test_canonical_push_denies_origin_mismatch(tmp_path: Path, monkeypatch) -> N
     assert "origin" in result.reason
 
 
-def test_canonical_push_denies_effective_pushurl_mismatch(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_canonical_push_denies_effective_pushurl_mismatch(tmp_path: Path, monkeypatch) -> None:
     def fake_git(_cwd: Path, args):
         values = {
             ("branch", "--show-current"): (BRANCH, None),
@@ -236,12 +222,7 @@ def test_canonical_push_denies_mirror_remote(tmp_path: Path, monkeypatch) -> Non
 
 def test_plain_push_requires_matching_upstream(tmp_path: Path, monkeypatch) -> None:
     def fake_git(_cwd: Path, args):
-        if tuple(args) == (
-            "rev-parse",
-            "--abbrev-ref",
-            "--symbolic-full-name",
-            "@{u}",
-        ):
+        if tuple(args) == ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"):
             return "origin/other", None
         return _published_feature_git(_cwd, args)
 
@@ -252,12 +233,7 @@ def test_plain_push_requires_matching_upstream(tmp_path: Path, monkeypatch) -> N
 
 def test_first_publish_form_allows_without_upstream(tmp_path: Path, monkeypatch) -> None:
     def fake_git(_cwd: Path, args):
-        if tuple(args) == (
-            "rev-parse",
-            "--abbrev-ref",
-            "--symbolic-full-name",
-            "@{u}",
-        ):
+        if tuple(args) == ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"):
             return None, "no upstream configured"
         return _published_feature_git(_cwd, args)
 
@@ -265,40 +241,59 @@ def test_first_publish_form_allows_without_upstream(tmp_path: Path, monkeypatch)
     assert result.decision == "allow"
 
 
-def test_first_publish_form_denies_when_upstream_exists(
-    tmp_path: Path, monkeypatch
-) -> None:
-    result = _allow_publication(
-        tmp_path,
-        monkeypatch,
-        FIRST_PUSH,
-        _published_feature_git,
-    )
+def test_first_publish_form_denies_when_upstream_exists(tmp_path: Path, monkeypatch) -> None:
+    result = _allow_publication(tmp_path, monkeypatch, FIRST_PUSH, _published_feature_git)
     assert result.decision == "deny"
     assert "first publication" in result.reason
 
 
 def test_pr_create_requires_published_current_branch(tmp_path: Path, monkeypatch) -> None:
-    result = _allow_publication(
-        tmp_path,
-        monkeypatch,
-        "gh pr create --fill",
-        _published_feature_git,
-    )
+    result = _allow_publication(tmp_path, monkeypatch, "gh pr create --fill", _published_feature_git)
     assert result.decision == "allow"
 
 
-def test_pr_create_rejects_repo_head_or_base_override(
+def test_pr_create_rejects_target_overrides_in_separate_and_equals_forms(
     tmp_path: Path, monkeypatch
 ) -> None:
-    result = _allow_publication(
-        tmp_path,
-        monkeypatch,
+    commands = (
         "gh pr create --repo other/repo --fill",
-        _published_feature_git,
+        "gh pr create --repo=other/repo --fill",
+        "gh pr create --head=other --fill",
+        "gh pr create --base=other --fill",
+        "gh pr create -Rother/repo --fill",
+    )
+    for command in commands:
+        result = _allow_publication(tmp_path, monkeypatch, command, _published_feature_git)
+        assert result.decision == "deny"
+        assert "may not override" in result.reason
+
+
+def test_pr_create_denies_when_local_head_is_not_published(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        scm_publication.authority,
+        "enforce_repository_authority",
+        lambda raw, result, **kwargs: result,
+    )
+    monkeypatch.setattr(
+        scm_publication.authority,
+        "current_repository_posture",
+        lambda *args, **kwargs: _report("READY"),
+    )
+    monkeypatch.setattr(scm_publication, "_run_git", _published_feature_git)
+    monkeypatch.setattr(
+        scm_publication,
+        "_github_branch_head",
+        lambda cwd, repository, branch: ("different", None),
+    )
+    result = scm_publication.validate_autonomous_publication(
+        _raw(tmp_path, "gh pr create --fill"),
+        _action("gh pr create --fill"),
+        Decision("allow", "candidate", "canonical-pr-create"),
     )
     assert result.decision == "deny"
-    assert "may not override" in result.reason
+    assert "not the published head" in result.reason
 
 
 def test_compound_shell_with_push_is_still_classified_as_publication() -> None:
@@ -307,9 +302,7 @@ def test_compound_shell_with_push_is_still_classified_as_publication() -> None:
     assert scm_publication.is_scm_publication(_action(command)) is True
 
 
-def test_compound_shell_cannot_be_autonomously_allowed(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_compound_shell_cannot_be_autonomously_allowed(tmp_path: Path, monkeypatch) -> None:
     command = f"git status && {NORMAL_PUSH}"
     observed: dict[str, object] = {}
 
@@ -317,11 +310,7 @@ def test_compound_shell_cannot_be_autonomously_allowed(
         observed["restricted_operation"] = restricted_operation
         return result
 
-    monkeypatch.setattr(
-        scm_publication.authority,
-        "enforce_repository_authority",
-        fake_authority,
-    )
+    monkeypatch.setattr(scm_publication.authority, "enforce_repository_authority", fake_authority)
     result = scm_publication.validate_autonomous_publication(
         _raw(tmp_path, command),
         _action(command),
