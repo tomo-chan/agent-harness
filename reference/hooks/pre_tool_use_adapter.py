@@ -4,6 +4,10 @@
 S1 supplies trusted policy, S2 applies repository authority, S3 validates narrow
 SCM publication semantics, and S4 requires explicit review when the actual
 publication diff changes Agent Harness control-plane paths.
+
+The adapter is also executed directly from the trusted launcher under isolated
+Python. It therefore establishes the trusted repository root on ``sys.path``
+instead of depending on the caller's working directory or ambient Python path.
 """
 
 from __future__ import annotations
@@ -14,12 +18,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-HARNESS_DIR = ROOT / "reference" / "harness"
-if str(HARNESS_DIR) not in sys.path:
-    sys.path.insert(0, str(HARNESS_DIR))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-from control_plane_publication import validate_publication  # noqa: E402
-from policy_engine import Decision, PolicyEngine  # noqa: E402
+from reference.harness.control_plane_publication import validate_publication  # noqa: E402
+from reference.hooks.policy_engine import Decision, PolicyEngine  # noqa: E402
 
 
 def normalize(raw: dict) -> dict:
