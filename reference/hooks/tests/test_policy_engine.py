@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from policy_engine import PolicyEngine, PolicyError
 
@@ -52,11 +54,26 @@ def test_unknown_action_defaults_to_approval() -> None:
 
 
 def test_invalid_policy_fails_validation() -> None:
-    try:
+    with pytest.raises(PolicyError):
         PolicyEngine({"default": "permit"})
-    except PolicyError:
-        return
-    raise AssertionError("invalid policy must raise PolicyError")
+
+
+@pytest.mark.parametrize("value", [False, None, 42, ["safe"]])
+def test_non_string_regex_fields_are_rejected(value) -> None:
+    policy = {
+        "default": "ask",
+        "allow": [{"id": "unsafe", "command_regex": value}],
+    }
+    with pytest.raises(PolicyError):
+        PolicyEngine(policy)
+
+
+def test_empty_regex_remains_an_explicit_predicate() -> None:
+    policy = {
+        "default": "ask",
+        "allow": [{"id": "explicit-empty", "command_regex": ""}],
+    }
+    assert PolicyEngine(policy).evaluate(action("anything")).decision == "allow"
 
 
 def test_adapter_denies_when_trusted_policy_is_missing() -> None:
