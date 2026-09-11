@@ -59,6 +59,7 @@ flowchart LR
 
 ## リポジトリ構成
 
+- [Agent Harness ツール仕様書（骨格）](docs/spec/agent-harness-spec.ja.md) — 実装言語・保証スライスから独立した契約と未決事項
 - [アーキテクチャ](docs/ja/01-architecture.md) ([English](docs/01-architecture.md))
 - [設計原則](docs/ja/02-design-principles.md) ([English](docs/02-design-principles.md))
 - [セキュリティモデル](docs/ja/03-security-model.md) ([English](docs/03-security-model.md))
