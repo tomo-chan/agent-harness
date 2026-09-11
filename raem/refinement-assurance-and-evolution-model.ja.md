@@ -830,7 +830,7 @@ AIエージェントまたは人間が非決定的な探索によって得た仮
 
 ```text
 抽象要求:
-外部SCMの最終強制権限は
+外部のソースコード管理システムの最終強制権限は
 AIエージェントから独立していること
 
     ↓
@@ -891,7 +891,7 @@ GitHub Rulesets
 - ポリシー実装
 - コンテナ設定
 - Kubernetes securityContext
-- SCM側Ruleset
+- ソースコード管理システム側のRuleset
 - IAM
 - CI required checks
 - 実行時のリポジトリ識別情報
