@@ -81,3 +81,5 @@ This project does not attempt to make prompts, [AGENTS.md](AGENTS.md), CLAUDE.md
 ## Guiding rule
 
 > Make safe actions easy and autonomous; make dangerous actions technically impossible or explicitly approved.
+
+- [Go S1 spike](docs/go-s1.md) — single-binary trusted policy boundary and Python comparison
