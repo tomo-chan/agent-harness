@@ -1,8 +1,8 @@
 [README](../../README.ja.md) | [アーキテクチャ](../ja/01-architecture.md) | [RAEM](../../raem/refinement-assurance-and-evolution-model.ja.md)
 
-# Agent Harness ツール仕様書
+# Agent Harness ツール仕様書（Agent Harness Tool Specification）
 
-## 1. 文書の位置づけとステータス
+## 1. 文書の位置づけと状態（Document Scope and Status）
 
 **ステータス: Draft / 仕様書骨格。** Agent Harness 全体の、実装言語・ベンダーから独立した責務と振る舞いを定義する。既存文書に基づく契約の基線を示すが、CLI、schema、数値制限などは未確定であり、完成済みの実装仕様や適合宣言ではない。
 
@@ -10,7 +10,7 @@
 
 **S1〜S6 は保証スライスであり、ツールのコンポーネント、実行フェーズ、CLI の分類ではない。Go / Python は具体実装であり、仕様そのものではない。** S1 の具体化を先行しても、全体仕様を「Go版S1ツール仕様」に限定しない。
 
-### 既存文書との分担
+### 既存文書との分担（Relationship to Existing Documents）
 
 | 文書 | 所有する内容 | 本仕様の役割 |
 |---|---|---|
@@ -24,7 +24,7 @@
 
 既存文書の説明・製品機能表・配備手順を複製しない。要求の矛盾が見つかった場合は、実装を正として上書きせず、根拠と影響を記録して仕様と関連文書を整合させる。必要になった詳細仕様は本書からリンクし、同じ契約を複数文書で独立管理しない。
 
-## 2. 全体像と目的
+## 2. 全体像と目的（Overview and Purpose）
 
 Agent Harness は、自律型ソフトウェア開発エージェントの提案する操作を、明示した権限・信頼境界・予算・完了条件の中で実行するための仕組みである。安全な通常操作を自律的に進め、境界を越える操作を拒否または適切な承認経路へ送る。名称は単一実行ファイルを意味せず、制御、実行環境、外部認可との接続を含む。
 
@@ -32,7 +32,7 @@ Agent Harness は、自律型ソフトウェア開発エージェントの提案
 
 期待する成果は、操作判断の再現性、最小権限での自律実行、根拠に基づく完了判定、失敗から復旧・改善できる運用である。すべての要求を機械判定できるという主張ではない。
 
-## 3. 用語と責務境界
+## 3. 用語と責務境界（Terminology and Responsibility Boundaries）
 
 | 主体・概念 | 責務 | 境界 |
 |---|---|---|
@@ -44,7 +44,7 @@ Agent Harness は、自律型ソフトウェア開発エージェントの提案
 | Normalized Action | 操作・対象・文脈を表す共通モデル | 入力上の自己申告と検証済み事実を区別する |
 | Evidence | 判断・適合主張を支える根拠 | 出所、対象、取得時点、評価条件を持つ |
 
-## 4. 論理アーキテクチャ
+## 4. 論理アーキテクチャ（Logical Architecture）
 
 | 機能・責務 | 入力と出力の概念 | 主な接続先 |
 |---|---|---|
@@ -76,7 +76,7 @@ flowchart LR
 
 図は論理フローであり、Hooks がすべての経路を捕捉できるという主張ではない。呼出し契約は第9章、捕捉できない経路の扱いは第15・16章で定める。
 
-## 5. 原理原則
+## 5. 原理原則（Principles）
 
 [設計原則](../ja/02-design-principles.md)を基線とし、次を契約に反映する。
 
@@ -87,7 +87,7 @@ flowchart LR
 - 完了は Evidence に基づく predicate とし、自律ループには上限を設ける。
 - Agent が見つけた未知の問題はモデルレビューと統治を通して仕様へ反映する。Agent 自身の判断で規範や強制境界を緩めない。
 
-## 6. 信頼モデル / Trusted Runtime
+## 6. 信頼モデルと信頼された実行環境（Trust Model and Trusted Runtime）
 
 **契約 TR-01:** trusted な実行物と設定の選択・完全性は、対象 repository や Agent が変更できる入力に委ねない。cwd、import / executable search path、環境変数、symlink、repository 内設定から任意の実行物・adapter・policy へ差し替えられる構成を trusted とみなさない。
 
@@ -95,7 +95,7 @@ trusted configuration、承認情報、永続タスク状態と、repository con
 
 **詳細化項目:** trusted root の選択主体、所有権・権限、配布・更新・失効、path resolution、symlink、環境変数の許容範囲、起動時と利用時の再検証を定義する（Q-01）。TCB と配備前提は第16章を参照。
 
-## 7. 実行モデル
+## 7. 実行モデル（Execution Model）
 
 [Architecture の状態機械](../ja/01-architecture.md)を基線に、調査 → 計画 → 専用 worktree で変更 → 検証 → commit → 公開 → CI 確認 → 完了判定を扱う。read-only タスクは変更・公開を要求せず、タスクで宣言した完了条件へ進む。PR 作成は merge の認可を意味しない。
 
@@ -105,7 +105,7 @@ trusted configuration、承認情報、永続タスク状態と、repository con
 
 **詳細化項目:** 状態遷移条件、並行操作、再開、取消、冪等性、予算計数、circuit breaker を定義する（Q-06）。
 
-## 8. ツール振る舞い
+## 8. ツールの振る舞い（Tool Behavior）
 
 **契約 BH-01:** 実行前に入力検証・正規化、信頼と対象の検証、適用 policy の評価、必要な承認の検証を行う。adapter は決定を vendor response へ変換する。実行後は結果と Evidence を記録し、必要な完了条件を評価する。
 
@@ -117,7 +117,7 @@ trusted configuration、承認情報、永続タスク状態と、repository con
 
 **契約 BH-02:** 判断と実行成功を区別する。allow の返却は実行完了の証拠ではなく、deny の返却だけで外部の強制が成功したともみなさない。出力不能・timeout・未対応イベントの扱いは第15章に従う。
 
-## 9. CLI / プロトコル
+## 9. コマンドラインインターフェースとプロトコル（CLI and Protocol）
 
 本章は言語非依存の外部契約の定義場所である。現行 Python の起動方法や Go の package layout を標準 CLI として採用済みとはみなさない。
 
@@ -133,7 +133,7 @@ trusted configuration、承認情報、永続タスク状態と、repository con
 
 **詳細化項目:** wire schema、CLI 形状、具体的 exit code、正常・異常例、互換性規則を確定する（Q-02）。本章のフィールド名は概念であり、確定した wire schema ではない。
 
-## 10. Policy
+## 10. ポリシー（Policy）
 
 **契約 PO-01:** deny は競合する ask / allow より優先する。ask は外部承認を必要とする判断、allow は制約下の実行許可である。分類不能な操作や必須の信頼検証失敗を暗黙の allow にしない。
 
@@ -141,7 +141,7 @@ trusted configuration、承認情報、永続タスク状態と、repository con
 
 **詳細化項目:** policy schema、rule order と競合時の理由選択、ask と allow の優先関係、default decision、matching / regex semantics、unknown field、schema validation、更新と承認の失効を定義する（Q-03）。欠落・読取不能・不正 policy は第15章に従い、repository 内の代替 policy に黙ってフォールバックしない。
 
-## 11. Repository Guard
+## 11. リポジトリ保護（Repository Guard）
 
 **契約 RE-01:** repository identity、worktree / branch、remote、保護状態（posture）と操作権限を検証する。payload や cwd の自己申告だけで mutation authority を与えない。
 
@@ -149,7 +149,7 @@ trusted configuration、承認情報、永続タスク状態と、repository con
 
 **詳細化項目:** identity の正本、posture の取得元・鮮度、worktree と branch の対応、symlink や別 remote、検証と実行の間の状態変化（TOCTOU）を扱う（Q-04）。外部 SCM の保護をローカル判定だけで保証したことにしない。
 
-## 12. Publication Guard
+## 12. 公開保護（Publication Guard）
 
 **契約 PU-01:** Git push と PR 作成は、検証済み repository / branch / commit と認可範囲に結びつける。merge、tag / release、production への公開は通常の feature branch 公開と区別し、明示した認可経路を必要とする。
 
@@ -157,7 +157,7 @@ trusted configuration、承認情報、永続タスク状態と、repository con
 
 **詳細化項目:** control-plane 分類と管理主体、push refspec / destination、PR head / base、差分の確定方法、認可・Evidence の有効範囲を定義する（Q-05）。SCM server-side authorization を最終権威とし、ローカル許可による bypass を認めない。
 
-## 13. Completion Assurance
+## 13. 完了保証（Completion Assurance）
 
 **契約 CO-01:** 完了条件はタスクに対して明示し、tests、Git / PR / CI 状態などの Evidence で決定的に評価する。モデルの完了宣言や自己評価を合格の根拠にしない。必要な Evidence が欠ける・古い・対象が異なる場合は完了としない。
 
@@ -165,7 +165,7 @@ trusted configuration、承認情報、永続タスク状態と、repository con
 
 **詳細化項目:** predicate の宣言者、結果状態と不足理由、Evidence の出所・鮮度・commit との結びつき、保存期間、予算枯渇時の処理を定義する（Q-06、Q-07）。具体的なチェック一覧の例は [Architecture](../ja/01-architecture.md) を参照する。
 
-## 14. Vendor Integration
+## 14. ベンダー統合（Vendor Integration）
 
 **契約 VE-01:** vendor event を Normalized Action へ、共通判断を vendor response へ変換する。policy engine に製品固有の schema や偶然の終了コードを埋め込まない。adapter の選択も trusted configuration の境界に含める。
 
@@ -173,7 +173,7 @@ trusted configuration、承認情報、永続タスク状態と、repository con
 
 **詳細化項目:** capability 宣言、version 対応表、変換不能時の応答と配備の可否、adapter conformance vectors を定義する（Q-08）。具体的な製品情報は [Product Mapping](../ja/05-product-mapping.md) と各製品の公式文書・検証結果で管理する。本仕様は各製品の現時点の機能を新たに保証しない。
 
-## 15. Failure semantics
+## 15. 失敗時の意味論（Failure Semantics）
 
 **契約 FA-01:** セキュリティ上重要な検証が成立しない場合、Harness は許可・完了を返さない。拒否を表現できない transport / runtime failure は失敗として伝播させる。呼出し元がそれを無視して継続する場合は fail-open として記録し、その経路の hard invariant を Hook だけに依存させない。
 
@@ -193,7 +193,7 @@ trusted configuration、承認情報、永続タスク状態と、repository con
 
 **詳細化項目:** error taxonomy、再試行可否、backoff、部分成功、audit 書込失敗時の扱い、exit / wire 表現を定義する（Q-02、Q-06、Q-09）。
 
-## 16. Security assumptions / 配備前提
+## 16. セキュリティ上の前提と配備前提（Security and Deployment Assumptions）
 
 [Security Model](../ja/03-security-model.md) の脅威・TCB・多層防御を適用する。具体実装の適合性はコードだけではなく、設定・配置・外部保護・実行時状態・運用前提を含めて評価する。
 
@@ -208,7 +208,7 @@ trusted configuration、承認情報、永続タスク状態と、repository con
 
 Agent の repository 書込権限に trusted policy 更新権限を含めない。MCP / 外部ツールも独立した認証・認可を必要とする。前提が成立しない配備で、成立時と同じ保証を表示しない。段階導入は [Adoption Guide](../ja/04-adoption-guide.md) の exit criteria に従う。
 
-## 17. Non-goals / 非保証範囲
+## 17. 非目標と非保証範囲（Non-goals and Non-guarantees）
 
 - LLM の完全な正しさ、prompt injection の完全排除、Hook 単独による全操作の封じ込め。
 - sandbox、container、IAM、SCM server-side policy の置換。
@@ -217,7 +217,7 @@ Agent の repository 書込権限に trusted policy 更新権限を含めない�
 - 汎用的な本番管理権限、自動 merge の暗黙認可、無制限の修復ループ。
 - テスト合格による未知の欠陥の不存在証明、RAEM 自体の再定義。
 
-## 18. Compatibility / 仕様の進化
+## 18. 互換性と仕様の進化（Compatibility and Specification Evolution）
 
 **契約 CP-01:** 互換性を、意味・保証契約、CLI / wire schema、policy schema、adapter / deployment の各軸で記録する。Go / Python の比較では対応する契約と test vectors を明示し、片方の出力との一致だけを仕様適合としない。
 
@@ -225,7 +225,7 @@ Agent の repository 書込権限に trusted policy 更新権限を含めない�
 
 **詳細化項目:** versioning、互換範囲、移行期間、廃止、version 不一致時の扱い、比較表の保管場所を定義する（Q-10）。骨格段階の本書から、既存 CLI との互換性を宣言しない。
 
-## 19. Test contract / Assurance との関係
+## 19. テスト契約と保証との関係（Test Contract and Relationship to Assurance）
 
 RAEM では具体化と適合保証を分離する。本仕様は Agent Harness に必要な契約をまとめ、具体化規則が Go / Python・設定・配備・外部制御へ接続する。S1〜S6 はその具体化が何を保証するかを、主張・Evidence・推論で横断的に確認する別軸である。
 
@@ -243,7 +243,7 @@ flowchart TB
     F --> T
 ```
 
-### 保証スライスとの参照対応（骨格）
+### 保証スライスとの参照対応（Reference Mapping to Assurance Slices）
 
 以下はレビュー観点の索引であり、スライスの保証契約そのものや適合済みの宣言ではない。1 機能と 1 スライスの一対一対応を強制しない。
 
@@ -258,7 +258,7 @@ flowchart TB
 
 S1〜S6 の作業は現時点では未マージの [PR #6](https://github.com/tomo-chan/agent-harness/pull/6)、[PR #7](https://github.com/tomo-chan/agent-harness/pull/7)、[PR #8](https://github.com/tomo-chan/agent-harness/pull/8)、[PR #9](https://github.com/tomo-chan/agent-harness/pull/9)、[PR #10](https://github.com/tomo-chan/agent-harness/pull/10)、[PR #11](https://github.com/tomo-chan/agent-harness/pull/11) にある。本書はそれらの採用・マージを前提にせず、確定時に参照を更新する。
 
-### 適合確認で用意するもの
+### 適合確認で用意するもの（Conformance Artifacts）
 
 - 契約 ID → 具体化規則 → 実装・設定 → Evidence → 保証規則 → 結果の対応表。
 - policy / normalization / schema の unit tests と、言語間で共有または対応する正常・異常 test vectors。
@@ -269,7 +269,7 @@ S1〜S6 の作業は現時点では未マージの [PR #6](https://github.com/to
 
 **詳細化項目:** vector 形式・配置、CI 必須条件、部分適合の表示、保証規則の version を定義する（Q-11）。全テスト PASS とモデルの十分性は別であり、モデルレビューを継続する。
 
-## 20. Open Questions
+## 20. 未決事項（Open Questions）
 
 骨格作成で CLI や配備方式を先取りしない。各問いは担当する契約と解決条件を持ち、関連部分の実装着手前に解決するか、実験としての仮定・非適合範囲を明記する。全機能の詳細確定まで部分的な具体化を止める必要はない。
 
