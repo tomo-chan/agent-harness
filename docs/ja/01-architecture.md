@@ -25,7 +25,7 @@ flowchart TB
         W --> PR[Permissions / Rules]
         PR --> S[OS Sandbox]
         S --> K[Kubernetes Pod]
-        K --> N[Network / IAM / SCM]
+        K --> N[ネットワーク / IAM / ソースコード管理システム]
     end
 
     O --> R
@@ -130,7 +130,7 @@ Subagent は context isolation や並列調査には有効ですが、セキュ�
 - resource requests / limits
 - default-deny NetworkPolicy + 明示的 egress path
 - static cloud key ではなく workload identity
-- repository-scoped / short-lived SCM credential
+- リポジトリに限定した短期のソースコード管理システム用認証情報
 
 リファレンス: [`agent-pod.yaml`](../../reference/kubernetes/agent-pod.yaml) / [`network-policy.yaml`](../../reference/kubernetes/network-policy.yaml)
 

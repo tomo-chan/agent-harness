@@ -25,7 +25,7 @@ flowchart TD
     P --> S[OS sandbox<br/>filesystem / network capability を制限]
     S --> C[Pod / container isolation<br/>host / peer workload を保護]
     C --> N[Network enforcement<br/>destination / protocol を制限]
-    N --> I[IAM / SCM authorization<br/>external authority を制限]
+    N --> I[IAM / ソースコード管理システムによる認可<br/>外部権限を制限]
     I --> R[Server-side protections<br/>critical resource を最終防御]
 ```
 
@@ -66,11 +66,11 @@ MCP は Agent の authority を拡張するため、Threat Model に含めます
 
 Production data へのアクセスには read-only service account を優先します。Generic administrative MCP tool を autonomous session に公開することは避けます。
 
-## Git / SCM
+## Git / ソースコード管理システム
 
 `status`、`diff`、`log`、feature branch の commit / push、PR creation などの通常操作は許可しやすくします。一方、force push、protected branch mutation、tag/release creation、workflow modification、merge などは deny または approval 対象にします。サンプル分類は [`policy.example.json`](../../reference/policies/policy.example.json) を参照してください。
 
-最終的な権威は SCM server-side rules です。Agent credential が ruleset や branch protection を bypass できてはいけません。
+最終的な権威はソースコード管理システムのサーバー側規則です。エージェントの認証情報が規則セットやブランチ保護を迂回できてはいけません。
 
 ## Hook Failure Semantics
 

@@ -18,7 +18,7 @@ flowchart TD
     E --> D
     D --> F[OS Sandbox]
     F --> G[Container / Pod]
-    G --> H[IAM / SCM / Cloud Policy]
+    G --> H[IAM / Source Code Management / Cloud Policy]
     H --> I[External Systems]
 ```
 
@@ -31,7 +31,7 @@ The layers have deliberately different responsibilities:
 | Permissions / Rules | Static command, tool and path classification |
 | Sandbox | Filesystem and network capability boundary |
 | Container / Pod | Process, host and resource isolation |
-| IAM / SCM policy | External authority and blast-radius containment |
+| IAM / source code management policy | External authority and blast-radius containment |
 | Completion Gate | Machine-verifiable definition of done |
 | Telemetry | Audit, incident analysis and policy tuning |
 

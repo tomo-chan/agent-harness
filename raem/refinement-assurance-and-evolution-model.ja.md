@@ -1367,7 +1367,7 @@ RAEM
     ↓
 具体的なAgent Harness
     ↓
-Claude Code / Codex / Devin / SCM / Runtime
+Claude Code / Codex / Devin / ソースコード管理システム / 実行環境
 ```
 
 という関係になる。

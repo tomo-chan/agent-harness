@@ -25,7 +25,7 @@ flowchart TB
         W --> PR[Permissions / Rules]
         PR --> S[OS Sandbox]
         S --> K[Kubernetes Pod]
-        K --> N[Network / IAM / SCM]
+        K --> N[Network / IAM / Source Code Management]
     end
 
     O --> R
@@ -130,7 +130,7 @@ For a Kubernetes deployment:
 - resource requests/limits;
 - default-deny network policy plus explicit egress path;
 - workload identity instead of static cloud keys;
-- short-lived repository-scoped SCM credentials.
+- short-lived repository-scoped source code management credentials.
 
 See the reference manifests: [`agent-pod.yaml`](../reference/kubernetes/agent-pod.yaml) and [`network-policy.yaml`](../reference/kubernetes/network-policy.yaml).
 

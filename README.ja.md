@@ -18,7 +18,7 @@ flowchart TD
     E --> D
     D --> F[OS Sandbox]
     F --> G[Container / Pod]
-    G --> H[IAM / SCM / Cloud Policy]
+    G --> H[IAM / ソースコード管理システム / クラウドポリシー]
     H --> I[External Systems]
 ```
 
@@ -31,7 +31,7 @@ flowchart TD
 | Permissions / Rules | コマンド、ツール、パスの静的分類 |
 | Sandbox | ファイルシステム・ネットワークの能力境界 |
 | Container / Pod | プロセス、ホスト、リソースの隔離 |
-| IAM / SCM Policy | 外部システムに対する権限と被害範囲の制御 |
+| IAM / ソースコード管理システムのポリシー | 外部システムに対する権限と被害範囲の制御 |
 | Completion Gate | 機械検証可能な「完了」の定義 |
 | Telemetry | 監査、障害解析、ポリシーチューニング |
 

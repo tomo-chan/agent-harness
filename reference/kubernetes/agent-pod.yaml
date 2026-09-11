@@ -46,4 +46,4 @@ spec:
 # - use workload identity only when cloud access is required;
 # - do not mount Docker/container-runtime sockets or hostPath volumes;
 # - prefer a dedicated ServiceAccount with minimum RBAC/IAM;
-# - add an external credential broker for short-lived SCM credentials.
+# - add an external credential broker for short-lived source code management credentials.
