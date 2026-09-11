@@ -1,4 +1,6 @@
-// agent-harness is the S1 generic JSON hook, not a command executor.
+// agent-harness is the generic JSON policy and repository-authority hook. It is
+// a decision point, not a command executor or a replacement for external access
+// control.
 package main
 
 import (

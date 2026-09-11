@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "expected_repository": "acme/widget",
+  "requirements": {
+    "require_linked_worktree": true,
+    "require_pull_request": true,
+    "block_force_push": true,
+    "required_status_checks": true
+  }
+}

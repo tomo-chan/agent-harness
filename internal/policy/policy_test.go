@@ -177,11 +177,22 @@ func TestInvalidPolicies(t *testing.T) {
 }
 
 func TestHookParsing(t *testing.T) {
-	for _, raw := range []string{`{"tool":"exec","input":{"command":"git status"}}`, `{"tool_name":"exec","tool_input":{"command":"git status"},"cwd":"/untrusted"}`} {
-		a, err := ParseHook(strings.NewReader(raw))
-		if err != nil || a.Tool != "exec" || a.Input["command"] != "git status" {
+	for _, tc := range []struct {
+		raw string
+		cwd string
+	}{
+		{`{"tool":"exec","input":{"command":"git status"}}`, ""},
+		{`{"tool_name":"exec","tool_input":{"command":"git status"},"cwd":"/untrusted"}`, "/untrusted"},
+		{`{"tool":"exec","input":{"command":"git status"},"context":{"cwd":"/context"}}`, "/context"},
+	} {
+		a, err := ParseHook(strings.NewReader(tc.raw))
+		if err != nil || a.Tool != "exec" || a.Input["command"] != "git status" || a.CWD != tc.cwd {
 			t.Fatalf("%+v %v", a, err)
 		}
+	}
+	withCWD, err := ParseHook(strings.NewReader(`{"tool":"exec","input":{"command":"git status"},"cwd":"/work/repository"}`))
+	if err != nil || withCWD.CWD != "/work/repository" {
+		t.Fatalf("cwd not preserved: %+v %v", withCWD, err)
 	}
 	if _, err := ParseHook(strings.NewReader(`{"tool":"Read","input":{"path":"x"}}`)); err != nil {
 		t.Fatal(err)
@@ -196,6 +207,10 @@ func TestHookParsing(t *testing.T) {
 		`{"tool":"exec","input":{},"tool_input":{}}`,
 		`{"tool":"exec","input":{"command":"x","command":"y"}}`,
 		`{"tool":"exec","input":{"command":"x"},"policy":"evil"}`,
+		`{"tool":"exec","input":{"command":"x"},"cwd":3}`,
+		`{"tool":"exec","input":{"command":"x"},"cwd":" "}`,
+		`{"tool":"exec","input":{"command":"x"},"context":[]}`,
+		`{"tool":"exec","input":{"command":"x"},"cwd":"/one","context":{"cwd":"/two"}}`,
 		`{"tool":"exec","input":{"command":"x"}} false`,
 	} {
 		if _, err := ParseHook(strings.NewReader(raw)); err == nil {
