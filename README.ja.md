@@ -61,6 +61,7 @@ flowchart LR
 
 - [Agent Harness ツール仕様書（骨格）](docs/spec/agent-harness-spec.ja.md) — 実装言語・保証スライスから独立した契約と未決事項
 - [Agent Harness 用語集](docs/spec/agent-harness-glossary.ja.md) — 仕様・実装・保証で共有する用語の定義
+- [Go 実装ノート](docs/implementation/go/implementation-notes.ja.md) — Trusted Runtime / Policy Enforcement の実験的具体化と根拠
 - [アーキテクチャ](docs/ja/01-architecture.md) ([English](docs/01-architecture.md))
 - [設計原則](docs/ja/02-design-principles.md) ([English](docs/02-design-principles.md))
 - [セキュリティモデル](docs/ja/03-security-model.md) ([English](docs/03-security-model.md))
@@ -81,5 +82,3 @@ flowchart LR
 ## 基本原則
 
 > 安全な操作は自律実行しやすくし、危険な操作は技術的に不可能にするか、明示的な承認を必要とする。
-
-- [Go S1 spike](docs/ja/go-s1.md) — 単一バイナリの信頼済み方針境界とPython版との比較

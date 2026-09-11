@@ -53,6 +53,27 @@ func TestPriorityAndPredicates(t *testing.T) {
 	}
 }
 
+func TestDecisionEvidenceIdentifiesPolicyAndNormalizedAction(t *testing.T) {
+	e, err := Load(strings.NewReader(`{"default":"ask"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := e.Evaluate(Action{"exec", "git status"})
+	if d.Evidence == nil || len(d.Evidence.PolicySHA256) != 64 || len(d.Evidence.ActionSHA256) != 64 {
+		t.Fatalf("missing evidence: %+v", d)
+	}
+	if other := e.Evaluate(Action{"Bash", "git status"}); other.Evidence.ActionSHA256 == d.Evidence.ActionSHA256 {
+		t.Fatal("tool identity must be part of normalized action evidence")
+	}
+	e2, err := Load(strings.NewReader("{\n\"default\":\"ask\"}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other := e2.Evaluate(Action{"exec", "git status"}); other.Evidence.PolicySHA256 == d.Evidence.PolicySHA256 {
+		t.Fatal("exact policy bytes must identify policy evidence")
+	}
+}
+
 func TestInvalidPolicies(t *testing.T) {
 	for _, p := range []string{
 		`null`, `[]`, `{`, `{} {}`, `{"default":"permit"}`, `{"default":null}`,

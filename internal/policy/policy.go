@@ -3,6 +3,10 @@
 package policy
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"regexp"
@@ -10,12 +14,22 @@ import (
 )
 
 type Decision struct {
-	Decision string  `json:"decision"`
-	Reason   string  `json:"reason"`
-	Rule     *string `json:"rule"`
+	Decision string    `json:"decision"`
+	Reason   string    `json:"reason"`
+	Rule     *string   `json:"rule"`
+	Evidence *Evidence `json:"evidence,omitempty"`
 }
 
-func Result(outcome, reason, rule string) Decision { return Decision{outcome, reason, &rule} }
+// Evidence identifies the exact policy bytes and normalized action used for a
+// decision. S1 reads no external state, so there is no external-state evidence.
+type Evidence struct {
+	PolicySHA256 string `json:"policy_sha256"`
+	ActionSHA256 string `json:"action_sha256"`
+}
+
+func Result(outcome, reason, rule string) Decision {
+	return Decision{Decision: outcome, Reason: reason, Rule: &rule}
+}
 
 type rule struct {
 	id       *string
@@ -24,18 +38,24 @@ type rule struct {
 }
 
 type Engine struct {
-	fallback string
-	rules    [3][]rule
+	fallback     string
+	rules        [3][]rule
+	policySHA256 string
 }
 
 var outcomes = [3]string{"deny", "ask", "allow"}
 
 func Load(r io.Reader) (*Engine, error) {
-	m, err := Object(r)
+	b, err := io.ReadAll(io.LimitReader(r, MaxJSON+1))
 	if err != nil {
 		return nil, err
 	}
-	e := &Engine{fallback: "ask"}
+	m, err := Object(bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(b)
+	e := &Engine{fallback: "ask", policySHA256: hex.EncodeToString(digest[:])}
 	for k, v := range m {
 		switch k {
 		case "default":
@@ -162,6 +182,18 @@ func ParseHook(r io.Reader) (Action, error) {
 }
 
 func (e *Engine) Evaluate(a Action) Decision {
+	actionJSON, err := json.Marshal(struct {
+		Tool    string `json:"tool"`
+		Command string `json:"command"`
+	}{a.Tool, a.Command})
+	if err != nil {
+		panic("fixed normalized action cannot fail JSON serialization")
+	}
+	actionDigest := sha256.Sum256(actionJSON)
+	evidence := &Evidence{
+		PolicySHA256: e.policySHA256,
+		ActionSHA256: hex.EncodeToString(actionDigest[:]),
+	}
 	texts := [3]string{a.Tool, a.Command, a.Tool + "\n" + a.Command}
 	for i, rules := range e.rules {
 		for _, r := range rules {
@@ -173,9 +205,11 @@ func (e *Engine) Evaluate(a Action) Decision {
 				}
 			}
 			if match {
-				return Decision{outcomes[i], r.reason, r.id}
+				return Decision{Decision: outcomes[i], Reason: r.reason, Rule: r.id, Evidence: evidence}
 			}
 		}
 	}
-	return Result(e.fallback, "no explicit policy rule matched", "default")
+	d := Result(e.fallback, "no explicit policy rule matched", "default")
+	d.Evidence = evidence
+	return d
 }

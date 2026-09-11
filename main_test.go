@@ -80,6 +80,9 @@ func TestSingleBinary(t *testing.T) {
 			if code != tc.code || d.Decision != tc.want || d.Reason == "" {
 				t.Fatalf("code=%d decision=%+v", code, d)
 			}
+			if code == 0 && d.Evidence == nil {
+				t.Fatal("valid decision omitted evidence")
+			}
 		})
 	}
 }
