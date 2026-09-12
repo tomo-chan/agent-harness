@@ -196,7 +196,7 @@ processはexit 2とする。検証済みの不一致や保護不足は `BLOCKED`
 
 `github_branch_metadata`を明示し、詳細rule要件を明示的に`false`としたtrusted configで、実binary、
 実linked worktree、GitHub repository ID `1357803614`、current branch
-`feature/go-repository-authority`を組み合わせた正常系E2Eを実行した。HEAD `36782a9`に対して
+`feature/go-repository-authority`を組み合わせた正常系E2Eを実行した。実装commit `17bcf6f`に対して
 posture `READY`、decision `allow`、current branch `protected=false`とsource固有response digestが
 得られた。これはhook判断だけを評価しており、test targetへの書込みやpublicationは実行していない。
 sourceのHTTP 403、metadata欠落、protected branchはtestsでunknown/failからREADYへ変換されない。
