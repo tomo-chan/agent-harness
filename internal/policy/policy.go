@@ -31,24 +31,25 @@ type Evidence struct {
 }
 
 // RepositoryEvidence binds a decision to the trusted repository policy and
-// fresh local/GitHub state used by Repository Authority / Posture. Rule digests
-// identify the exact default-branch and current-branch responses evaluated.
+// fresh local/GitHub state used by Repository Authority / Posture. Authority
+// source and response digests identify the exact external evidence evaluated.
 type RepositoryEvidence struct {
-	PolicySHA256             string                    `json:"policy_sha256"`
-	PostureState             string                    `json:"posture_state"`
-	Repository               string                    `json:"repository"`
-	RepositoryID             int64                     `json:"repository_id"`
-	RepoRoot                 string                    `json:"repo_root"`
-	MutationTarget           string                    `json:"mutation_target"`
-	Branch                   string                    `json:"branch"`
-	HeadSHA                  string                    `json:"head_sha"`
-	DefaultBranch            string                    `json:"default_branch"`
-	LinkedWorktree           bool                      `json:"linked_worktree"`
-	MetadataSHA256           string                    `json:"github_metadata_sha256"`
-	DefaultRulesSHA256       string                    `json:"github_default_rules_sha256,omitempty"`
-	CurrentBranchRulesSHA256 string                    `json:"github_current_branch_rules_sha256,omitempty"`
-	CheckedAt                string                    `json:"checked_at"`
-	Checks                   []RepositoryCheckEvidence `json:"checks"`
+	PolicySHA256           string                    `json:"policy_sha256"`
+	PostureState           string                    `json:"posture_state"`
+	Repository             string                    `json:"repository"`
+	RepositoryID           int64                     `json:"repository_id"`
+	RepoRoot               string                    `json:"repo_root"`
+	MutationTarget         string                    `json:"mutation_target"`
+	Branch                 string                    `json:"branch"`
+	HeadSHA                string                    `json:"head_sha"`
+	DefaultBranch          string                    `json:"default_branch"`
+	LinkedWorktree         bool                      `json:"linked_worktree"`
+	AuthoritySource        string                    `json:"github_authority_source"`
+	MetadataSHA256         string                    `json:"github_metadata_sha256"`
+	DefaultAuthoritySHA256 string                    `json:"github_default_authority_sha256,omitempty"`
+	CurrentAuthoritySHA256 string                    `json:"github_current_authority_sha256,omitempty"`
+	CheckedAt              string                    `json:"checked_at"`
+	Checks                 []RepositoryCheckEvidence `json:"checks"`
 }
 
 // RepositoryCheckEvidence retains pass/fail/unknown without converting missing

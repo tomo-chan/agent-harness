@@ -28,6 +28,7 @@ func TestSingleBinary(t *testing.T) {
 	valid := `{"default":"ask","allow":[{"command_regex":"^git status$"}],"deny":[{"command_regex":"danger"}]}`
 	repositoryConfigBytes, err := json.Marshal(map[string]any{
 		"schema_version":          1,
+		"authority_source":        "github_rules",
 		"expected_repository":     "acme/widget",
 		"expected_repository_id":  123456,
 		"expected_worktree_root":  cwd,

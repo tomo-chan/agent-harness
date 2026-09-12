@@ -29,13 +29,19 @@ func (f fakeGit) Run(_ context.Context, _ string, args ...string) (string, error
 
 type fakeGitHub struct {
 	metadata   Metadata
+	branches   map[string]BranchMetadata
 	rules      map[string]map[string]bool
 	metaErr    error
+	branchErr  map[string]error
 	rulesError map[string]error
 }
 
 func (f fakeGitHub) Repository(context.Context, string) (Metadata, string, error) {
 	return f.metadata, "metadata-digest", f.metaErr
+}
+
+func (f fakeGitHub) Branch(_ context.Context, _, branch string) (BranchMetadata, string, error) {
+	return f.branches[branch], "branch-digest-" + branch, f.branchErr[branch]
 }
 
 func (f fakeGitHub) EffectiveRuleTypes(_ context.Context, _, branch string) (map[string]bool, string, error) {
@@ -54,6 +60,7 @@ func readyInputs(t *testing.T) (string, *Config, fakeGit, fakeGitHub) {
 	}
 	config := &Config{
 		SchemaVersion:        1,
+		AuthoritySource:      AuthoritySourceGitHubRules,
 		ExpectedRepository:   "acme/widget",
 		ExpectedRepositoryID: 123456,
 		ExpectedWorktreeRoot: root,
@@ -78,6 +85,10 @@ func readyInputs(t *testing.T) (string, *Config, fakeGit, fakeGitHub) {
 	}
 	github := fakeGitHub{
 		metadata: Metadata{ID: 123456, FullName: "acme/widget", DefaultBranch: "main"},
+		branches: map[string]BranchMetadata{
+			"feature/task": {Name: "feature/task", Protected: false},
+			"main":         {Name: "main", Protected: true},
+		},
 		rules: map[string]map[string]bool{
 			"feature/task": {},
 			"main": {
@@ -86,6 +97,7 @@ func readyInputs(t *testing.T) (string, *Config, fakeGit, fakeGitHub) {
 				"required_status_checks": true,
 			},
 		},
+		branchErr:  map[string]error{},
 		rulesError: map[string]error{},
 	}
 	return root, config, git, github
@@ -113,9 +125,48 @@ func TestAssessReadyUsesFreshLocalAndGitHubEvidence(t *testing.T) {
 	}
 	if report.Evidence.RepositoryPolicySHA256 != "policy-digest" ||
 		report.Evidence.GitHubMetadataSHA256 != "metadata-digest" ||
-		report.Evidence.GitHubDefaultRulesSHA256 != "rules-digest-main" ||
-		report.Evidence.GitHubCurrentRulesSHA256 != "rules-digest-feature/task" {
+		report.Evidence.AuthoritySource != AuthoritySourceGitHubRules ||
+		report.Evidence.GitHubDefaultAuthoritySHA256 != "rules-digest-main" ||
+		report.Evidence.GitHubCurrentAuthoritySHA256 != "rules-digest-feature/task" {
 		t.Fatalf("missing evidence: %+v", report.Evidence)
+	}
+}
+
+func TestAssessReadyWithAvailableGitHubBranchMetadataSource(t *testing.T) {
+	root, config, git, github := readyInputs(t)
+	config.AuthoritySource = AuthoritySourceGitHubBranchMetadata
+	config.Requirements.RequirePullRequest = false
+	config.Requirements.BlockForcePush = false
+	config.Requirements.RequiredStatusChecks = false
+	report, err := Assess(context.Background(), mutationAction(root), config, git, github, time.Unix(1_000, 0))
+	if err != nil || report.State != "READY" {
+		t.Fatalf("report=%+v err=%v", report, err)
+	}
+	if report.Evidence.AuthoritySource != AuthoritySourceGitHubBranchMetadata ||
+		report.Evidence.GitHubCurrentAuthoritySHA256 != "branch-digest-feature/task" ||
+		report.Evidence.GitHubDefaultAuthoritySHA256 != "" {
+		t.Fatalf("unexpected source evidence: %+v", report.Evidence)
+	}
+}
+
+func TestAssessBranchMetadataSourceFailsClosed(t *testing.T) {
+	for _, mutate := range []func(*Config, *fakeGitHub){
+		func(_ *Config, github *fakeGitHub) {
+			github.branches["feature/task"] = BranchMetadata{Name: "feature/task", Protected: true}
+		},
+		func(_ *Config, github *fakeGitHub) { github.branchErr["feature/task"] = errors.New("HTTP 403") },
+		func(config *Config, _ *fakeGitHub) { config.Requirements.RequirePullRequest = true },
+	} {
+		root, config, git, github := readyInputs(t)
+		config.AuthoritySource = AuthoritySourceGitHubBranchMetadata
+		config.Requirements.RequirePullRequest = false
+		config.Requirements.BlockForcePush = false
+		config.Requirements.RequiredStatusChecks = false
+		mutate(config, &github)
+		report, err := Assess(context.Background(), mutationAction(root), config, git, github, time.Now())
+		if report.State != "BLOCKED" {
+			t.Fatalf("report=%+v err=%v", report, err)
+		}
 	}
 }
 
@@ -163,6 +214,7 @@ func TestAssessBindsAnActualLinkedWorktree(t *testing.T) {
 	}
 	config := &Config{
 		SchemaVersion:        1,
+		AuthoritySource:      AuthoritySourceGitHubRules,
 		ExpectedRepository:   "acme/widget",
 		ExpectedRepositoryID: 123456,
 		ExpectedWorktreeRoot: worktree,
@@ -179,6 +231,10 @@ func TestAssessBindsAnActualLinkedWorktree(t *testing.T) {
 	}
 	github := fakeGitHub{
 		metadata: Metadata{ID: 123456, FullName: "acme/widget", DefaultBranch: "main"},
+		branches: map[string]BranchMetadata{
+			"feature/task": {Name: "feature/task", Protected: false},
+			"main":         {Name: "main", Protected: true},
+		},
 		rules: map[string]map[string]bool{
 			"feature/task": {},
 			"main": {
@@ -187,6 +243,7 @@ func TestAssessBindsAnActualLinkedWorktree(t *testing.T) {
 				"required_status_checks": true,
 			},
 		},
+		branchErr:  map[string]error{},
 		rulesError: map[string]error{},
 	}
 	action := policy.Action{Tool: "Write", CWD: worktree, Target: filepath.Join(worktree, "new.txt")}

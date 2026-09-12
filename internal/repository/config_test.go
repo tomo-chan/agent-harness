@@ -7,6 +7,7 @@ import (
 
 const validConfigJSON = `{
 	"schema_version":1,
+	"authority_source":"github_rules",
 	"expected_repository":"acme/widget",
 	"expected_repository_id":123456,
 	"expected_worktree_root":"/work/task",
@@ -32,6 +33,7 @@ func TestLoadConfigUsesFailSafeRequirementDefaults(t *testing.T) {
 func TestLoadConfigAllowsOnlyTrustedExplicitRequirementChanges(t *testing.T) {
 	config, err := LoadConfig(strings.NewReader(`{
 			"schema_version":1,
+			"authority_source":"github_rules",
 			"expected_repository":"acme/widget",
 			"expected_repository_id":123456,
 			"expected_worktree_root":"/work/task",
@@ -51,20 +53,35 @@ func TestLoadConfigAllowsOnlyTrustedExplicitRequirementChanges(t *testing.T) {
 func TestLoadConfigRejectsAmbiguousOrInvalidPolicy(t *testing.T) {
 	for _, raw := range []string{
 		`{}`,
-		`{"schema_version":2,"expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task"}`,
-		`{"schema_version":1,"expected_repository":"not-a-repository","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task"}`,
-		`{"schema_version":1,"expected_repository":"acme/widget","expected_repository_id":0,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task"}`,
-		`{"schema_version":1,"expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"relative","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task"}`,
-		`{"schema_version":1,"expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"relative","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task"}`,
-		`{"schema_version":1,"expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"release..bad"}`,
-		`{"schema_version":1,"expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task","unknown":true}`,
-		`{"schema_version":1,"expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task","requirements":[]}`,
-		`{"schema_version":1,"expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task","requirements":{"require_pull_request":"yes"}}`,
-		`{"schema_version":1,"expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task","requirements":{"unknown":true}}`,
-		`{"schema_version":1,"schema_version":1,"expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task"}`,
+		`{"schema_version":2,"authority_source":"github_rules","expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task"}`,
+		`{"schema_version":1,"authority_source":"unknown","expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task"}`,
+		`{"schema_version":1,"authority_source":"github_rules","expected_repository":"not-a-repository","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task"}`,
+		`{"schema_version":1,"authority_source":"github_rules","expected_repository":"acme/widget","expected_repository_id":0,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task"}`,
+		`{"schema_version":1,"authority_source":"github_rules","expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"relative","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task"}`,
+		`{"schema_version":1,"authority_source":"github_rules","expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"relative","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task"}`,
+		`{"schema_version":1,"authority_source":"github_rules","expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"release..bad"}`,
+		`{"schema_version":1,"authority_source":"github_rules","expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task","unknown":true}`,
+		`{"schema_version":1,"authority_source":"github_rules","expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task","requirements":[]}`,
+		`{"schema_version":1,"authority_source":"github_rules","expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task","requirements":{"require_pull_request":"yes"}}`,
+		`{"schema_version":1,"authority_source":"github_rules","expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task","requirements":{"unknown":true}}`,
+		`{"schema_version":1,"schema_version":1,"authority_source":"github_rules","expected_repository":"acme/widget","expected_repository_id":123456,"expected_worktree_root":"/work/task","expected_git_dir":"/repo/.git/worktrees/task","expected_git_common_dir":"/repo/.git","expected_branch":"feature/task"}`,
 	} {
 		if _, err := LoadConfig(strings.NewReader(raw)); err == nil {
 			t.Errorf("accepted invalid repository policy: %s", raw)
 		}
+	}
+}
+
+func TestLoadConfigRequiresExplicitWeakeningForBranchMetadataSource(t *testing.T) {
+	withDefaults := strings.Replace(validConfigJSON, `"github_rules"`, `"github_branch_metadata"`, 1)
+	if _, err := LoadConfig(strings.NewReader(withDefaults)); err == nil {
+		t.Fatal("branch metadata source silently weakened detailed protection requirements")
+	}
+	withExplicitRequirements := strings.TrimSuffix(strings.TrimSpace(withDefaults), "}") + `,
+		"requirements":{"require_pull_request":false,"block_force_push":false,"required_status_checks":false}}
+`
+	config, err := LoadConfig(strings.NewReader(withExplicitRequirements))
+	if err != nil || config.AuthoritySource != AuthoritySourceGitHubBranchMetadata {
+		t.Fatalf("config=%+v err=%v", config, err)
 	}
 }

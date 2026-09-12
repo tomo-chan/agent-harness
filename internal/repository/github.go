@@ -26,10 +26,19 @@ type Metadata struct {
 	Disabled      bool   `json:"disabled"`
 }
 
+// BranchMetadata contains the authoritative branch fields available from the
+// general branch endpoint. Protected is narrower than effective Rules details:
+// it supports current-branch exclusion but not rule-parameter assertions.
+type BranchMetadata struct {
+	Name      string
+	Protected bool
+}
+
 // GitHub supplies current GitHub state. Implementations must authenticate to
 // GitHub itself and must not accept repository-selected API endpoints.
 type GitHub interface {
 	Repository(context.Context, string) (Metadata, string, error)
+	Branch(context.Context, string, string) (BranchMetadata, string, error)
 	EffectiveRuleTypes(context.Context, string, string) (map[string]bool, string, error)
 }
 
@@ -133,6 +142,31 @@ func (c *APIClient) Repository(ctx context.Context, name string) (Metadata, stri
 		Archived:      *response.Archived,
 		Disabled:      *response.Disabled,
 	}, digest, nil
+}
+
+// Branch gets the exact branch's protected flag from GitHub's general branch
+// metadata endpoint. Missing or malformed state fails closed; this method does
+// not infer detailed protection rules from the boolean.
+func (c *APIClient) Branch(ctx context.Context, name, branch string) (BranchMetadata, string, error) {
+	path, err := repositoryPath(name)
+	if err != nil {
+		return BranchMetadata{}, "", err
+	}
+	if !validBranch(branch) {
+		return BranchMetadata{}, "", fmt.Errorf("invalid branch identity")
+	}
+	var response struct {
+		Name      string `json:"name"`
+		Protected *bool  `json:"protected"`
+	}
+	digest, err := c.get(ctx, path+"/branches/"+url.PathEscape(branch), &response)
+	if err != nil {
+		return BranchMetadata{}, "", err
+	}
+	if response.Name == "" || response.Protected == nil {
+		return BranchMetadata{}, "", fmt.Errorf("GitHub branch metadata omitted required name or protected state")
+	}
+	return BranchMetadata{Name: response.Name, Protected: *response.Protected}, digest, nil
 }
 
 // EffectiveRuleTypes gets the current rule types GitHub reports as applying to

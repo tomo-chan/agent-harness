@@ -164,21 +164,22 @@ func (rt runtime) evaluate(in io.Reader, args []string) (policy.Decision, string
 		checks[i] = policy.RepositoryCheckEvidence{Name: check.Name, Status: check.Status, Detail: check.Detail}
 	}
 	d.Evidence.Repository = &policy.RepositoryEvidence{
-		PolicySHA256:             report.Evidence.RepositoryPolicySHA256,
-		PostureState:             report.State,
-		Repository:               report.Repository,
-		RepositoryID:             report.RepositoryID,
-		RepoRoot:                 report.RepoRoot,
-		MutationTarget:           report.MutationTarget,
-		Branch:                   report.Branch,
-		HeadSHA:                  report.HeadSHA,
-		DefaultBranch:            report.DefaultBranch,
-		LinkedWorktree:           report.LinkedWorktree,
-		MetadataSHA256:           report.Evidence.GitHubMetadataSHA256,
-		DefaultRulesSHA256:       report.Evidence.GitHubDefaultRulesSHA256,
-		CurrentBranchRulesSHA256: report.Evidence.GitHubCurrentRulesSHA256,
-		CheckedAt:                report.Evidence.CheckedAt,
-		Checks:                   checks,
+		PolicySHA256:           report.Evidence.RepositoryPolicySHA256,
+		PostureState:           report.State,
+		Repository:             report.Repository,
+		RepositoryID:           report.RepositoryID,
+		RepoRoot:               report.RepoRoot,
+		MutationTarget:         report.MutationTarget,
+		Branch:                 report.Branch,
+		HeadSHA:                report.HeadSHA,
+		DefaultBranch:          report.DefaultBranch,
+		LinkedWorktree:         report.LinkedWorktree,
+		AuthoritySource:        report.Evidence.AuthoritySource,
+		MetadataSHA256:         report.Evidence.GitHubMetadataSHA256,
+		DefaultAuthoritySHA256: report.Evidence.GitHubDefaultAuthoritySHA256,
+		CurrentAuthoritySHA256: report.Evidence.GitHubCurrentAuthoritySHA256,
+		CheckedAt:              report.Evidence.CheckedAt,
+		Checks:                 checks,
 	}
 	if err != nil {
 		failed := policy.Result("deny", "Agent Harness evaluation failed: repository-authority-error", "repository-authority-error")

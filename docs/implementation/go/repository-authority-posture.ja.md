@@ -10,7 +10,7 @@
 `internal/repository` を「S2 package」とは扱わない。
 
 仕様比較は2026-09-12時点のPR #16 HEAD `936e41e`（BH-03監査契約を含む）、Go基線は
-PR #15 HEAD `7bc085e`、Python比較はPR #7 HEAD `4af4d5b` を対象とする。
+PR #15 HEAD `139dede`、Python比較はPR #7 HEAD `4af4d5b` を対象とする。
 
 本実装は PR #15 の Trusted Runtime / Policy Enforcement に stack し、固定 trusted
 root、単一 binary、厳格 JSON、tool policy / action digest を再利用する。Python PR #7 は
@@ -21,7 +21,7 @@ root、単一 binary、厳格 JSON、tool policy / action digest を再利用す
 
 - trusted expected repository name / immutable GitHub repository ID、task worktree、Git common directory、branch と repository-security policy の束縛・検証
 - 現在の local Git identity / worktree / branch / HEAD の観測
-- GitHub canonical identity / default branch / active state / effective rules の取得
+- GitHub canonical identity / default branch / active stateと、trusted policyが明示したauthority sourceの取得
 - generic action が repository mutation authority を必要とするかの保守的分類と、直接file mutation targetのworktree内検証
 - policy の `allow` / `ask` より先に適用する fresh authority evaluation
 - pass / fail / unknown と利用した状態の Evidence
@@ -69,6 +69,7 @@ S3のpublication分類ではない。
 ```json
 {
   "schema_version": 1,
+  "authority_source": "github_rules",
   "expected_repository": "acme/widget",
   "expected_repository_id": 123456789,
   "expected_worktree_root": "/srv/agent-harness/worktrees/task-123",
@@ -83,6 +84,36 @@ S3のpublication分類ではない。
   }
 }
 ```
+
+`authority_source` は必須で、次のいずれかをtrusted policyが明示する。runtimeは403等を理由に
+別sourceへfallbackしない。
+
+| source | GitHub endpoint | 保証できる範囲 | 設定制約 |
+|---|---|---|---|
+| `github_rules` | `GET /repos/{owner}/{repo}/rules/branches/{branch}` | current branchのeffective rulesとdefault branchのrule types | `require_pull_request`、`block_force_push`、`required_status_checks`を評価可能 |
+| `github_branch_metadata` | `GET /repos/{owner}/{repo}/branches/{branch}` | exact current branchのauthoritative `protected` boolean | 詳細rule要件を証明できないため、3要件をtrusted fileで明示的に`false`にしなければconfigを拒否 |
+
+`github_branch_metadata` はGitHub server-side protectionの詳細をlocal policyで代用しない。例えば
+private/free repositoryで詳細APIが利用できず、local task branchのmutationだけを許可する場合は、
+trusted operatorが次を明示する。
+
+```json
+{
+  "authority_source": "github_branch_metadata",
+  "requirements": {
+    "require_linked_worktree": true,
+    "require_pull_request": false,
+    "block_force_push": false,
+    "required_status_checks": false
+  }
+}
+```
+
+この`false`はdefault branch保護が成立したというEvidenceではなく、その保証を本sourceでは主張
+しないという明示的な縮退である。default branchへのlocal mutation拒否、exact task binding、
+current branchの`protected`拒否は引き続き必須であり、publicationはS3で別途検証する。
+branch metadata sourceはcurrent branchがGitHubに存在することも要求する。未公開branchの404は
+unknownとして拒否するため、branchを誰がいつpre-createするかはdeployment/S3との接続契約になる。
 
 `expected_repository_id`、task固有のworktree / Git directories / branchは必須であり、
 trusted control planeがworktree作成結果から生成して保護する。local repositoryが同じ
@@ -133,7 +164,8 @@ secret isolationは配備側の責務である。
 5. raw local `origin` とtrusted expected repositoryの一致
 6. current branch、HEAD object ID、linked worktree
 7. GitHub immutable repository ID、`full_name`、default branch、archived / disabled
-8. current branchとdefault branchへ現在適用されるGitHub Rules
+8. trusted policyが選択したGitHub authority sourceによるcurrent branch protection
+9. `github_rules`選択時だけ、default branchへ現在適用されるrule types
 
 本実装はproduction候補として単一の厳格な判定を採る。必要なcheckがすべてpassしたときだけ
 `READY` とし、failまたはunknownを1件でも含む場合は `BLOCKED` とする。Python S2の
@@ -141,16 +173,33 @@ secret isolationは配備側の責務である。
 運用・鮮度契約と合わせて決める。
 
 `require_linked_worktree` が有効ならcontrol checkoutを拒否する。detached HEAD、trusted branch
-不一致、GitHubのdefault branch、current branchにeffective ruleが存在するprotected branch、
-archived / disabled repository、expected name / immutable ID不一致、必須rule type欠落も
-拒否する。default branchで確認するrule typeは `pull_request`、`non_fast_forward`、
-`required_status_checks` である。GitHubのserver-side authorizationが最終権威であり、この
-presence checkだけでrulesの完全性やcredentialの迂回不能性を保証したことにはならない。
+不一致、GitHubのdefault branch、選択sourceがprotectedと報告するcurrent branch、archived /
+disabled repository、expected name / immutable ID不一致を拒否する。`github_rules`でdefault
+branchを確認するrule typeは `pull_request`、`non_fast_forward`、`required_status_checks` である。
+GitHubのserver-side authorizationが最終権威であり、rule presenceやbranch metadataだけで
+rules parameterの完全性やcredentialの迂回不能性を保証したことにはならない。
 
 外部APIやlocal queryが取得不能ならcheckは `unknown` として保持し、decisionは `deny`、
 processはexit 2とする。検証済みの不一致や保護不足は `BLOCKED` の通常decisionとして
 `deny`、exit 0とする。callerは非zero、欠落/不正output、panic、signal、timeoutを拒否として
 扱わなければならない。
+
+### Production repository Evidence（2026-09-12）
+
+`tomo-chan/agent-harness`（private repository）でsource可用性を実測した。
+
+| source | 結果 |
+|---|---|
+| effective Rules API | HTTP 403（private/free planでは利用不可） |
+| branch-protection詳細API | HTTP 403（private/free planでは利用不可） |
+| branch metadata API | default/current branchともHTTP 200。`protected`を取得可能 |
+
+`github_branch_metadata`を明示し、詳細rule要件を明示的に`false`としたtrusted configで、実binary、
+実linked worktree、GitHub repository ID `1357803614`、current branch
+`feature/go-repository-authority`を組み合わせた正常系E2Eを実行した。HEAD `36782a9`に対して
+posture `READY`、decision `allow`、current branch `protected=false`とsource固有response digestが
+得られた。これはhook判断だけを評価しており、test targetへの書込みやpublicationは実行していない。
+sourceのHTTP 403、metadata欠落、protected branchはtestsでunknown/failからREADYへ変換されない。
 
 ## 5. Evidence
 
@@ -159,7 +208,7 @@ mutationの判断には既存のtool policy / action SHA-256に加え、次を�
 - repository-security policy全byteのSHA-256
 - posture stateと各checkのpass / fail / unknown
 - canonical repositoryとimmutable ID、repository root、mutation target、branch、HEAD、default branch、linked worktree
-- GitHub metadata response、current branch rules、default branch rules responseのSHA-256
+- 選択したGitHub authority source名、metadata response、current/default source responseのSHA-256
 - 取得時刻
 
 action digestには検証前の `cwd` も含める。response digestは取得byteを識別するが、GitHub
@@ -171,8 +220,8 @@ responseへの独立署名や永続audit storeではない。取得時刻・comm
 | 全体仕様 | Goでの具体化 | 決定的Evidence | 評価 |
 |---|---|---|---|
 | TR-01 | 固定trusted rootの `repository-security.json`。legacy selector、repository overlay、cacheを権威から除外 | `TestTrustedPaths`、`TestSingleBinary`、`TestLoadConfigRejectsAmbiguousOrInvalidPolicy` | 配備前提付き部分適合 |
-| RE-01 | local root/per-worktree Git dir/common-dir/branch/targetとtrusted task bindingを照合し、GitHub immutable ID/canonical metadata/rulesをfresh取得 | `TestAssessReadyUsesFreshLocalAndGitHubEvidence`、binding/target/identity/API異常tests | direct file mutation範囲で部分適合 |
-| RE-02 | task固有worktree/Git dirs/branch、linked worktree、non-detached branch、default/protected branch拒否 | `TestAssessBindsAnActualLinkedWorktree`、`TestAssessBindsTrustedWorktreeGitDirectoriesAndBranch`、`TestAssessRejectsProtectedExpectedBranch` | trusted task config生成は配備前提 |
+| RE-01 | local root/per-worktree Git dir/common-dir/branch/targetとtrusted task bindingを照合し、GitHub immutable ID/canonical metadataと明示authority sourceをfresh取得 | `TestAssessReadyUsesFreshLocalAndGitHubEvidence`、`TestAssessReadyWithAvailableGitHubBranchMetadataSource`、production repository E2E | direct file mutation範囲で部分適合 |
+| RE-02 | task固有worktree/Git dirs/branch、linked worktree、non-detached branch、default/protected branch拒否 | `TestAssessBindsAnActualLinkedWorktree`、`TestAssessRejectsProtectedExpectedBranch`、`TestAssessBranchMetadataSourceFailsClosed` | trusted task config生成は配備前提 |
 | PO-01 | policy `deny`を維持し、mutationの `allow` / `ask` をauthority denyで上書き | `TestRuntimeAppliesRepositoryAuthorityInActualEvaluationPath` | 実行経路で確認 |
 | PO-02 | policy/actionにrepository policy、local target、GitHub response digest、取得時刻を追加 | `TestAssessReadyUsesFreshLocalAndGitHubEvidence`、runtime integration test | audit永続化を除き部分適合 |
 | BH-03 | decision JSONに判断と根拠を相関可能な形で返すが、監査記録の保存・完全性・配信を実装しない | decision Evidence tests | 未適合。Q-09として明示 |
@@ -190,7 +239,7 @@ responseへの独立署名や永続audit storeではない。取得時刻・comm
 | repository config | monotonic overlayで強化可能 | overlayを読まない | Goは弱化経路とmerge complexityを除去する一方、repository側の追加要件を表せない |
 | state / cache | READY / RESTRICTED / BLOCKED、TTL cacheはcontextのみ | READY / BLOCKED、authorityは毎回fresh、cacheなし | Goは厳格で単純。interactive warn/restricted運用は未対応 |
 | mutation分類 | explicit read-only allowlist。reviewで危険variantとunknown schemaを修正 | exact read-only forms以外をmutation扱い | 既知findingを否定testsへ移した |
-| GitHub取得 | trusted path外の `gh api` subprocess | fixed HTTPS API、proxy/redirectなし | GoはPATH/config/`gh` version差を削減。TLS root、HTTP client、token供給が責務に加わる |
+| GitHub取得 | trusted path外の `gh api` subprocess | fixed HTTPS API、proxy/redirectなし、trusted source明示、fallbackなし | GoはPATH/config/`gh` version差を削減。TLS root、HTTP client、token供給が責務に加わる |
 | Evidence | report、pass/fail/unknown、非権威cache | decision JSONへpolicy/local/GitHub digestとchecksを結合 | Goは判断との結合を強めるが永続auditではない |
 | build / distribution | trusted source treeとPython version/module組合せ | OS/architecture別binary、Go toolchain、build flags、固定Git path | Goはruntimeを単純化する代わりにartifact provenance、署名、更新、失効を増やす |
 
@@ -203,7 +252,8 @@ identity消失は、Goではcache/overlayを採用せず、read-onlyを正に限
 - Q-01: binary、repository policy、`/usr/bin/git`、OS trust storeの所有権、署名、更新、rollback、失効。
 - Q-02/Q-10: repository policy schema、Evidence field、exit statusは実験契約。version negotiationと移行期間は未確定。
 - Q-04: task固有worktree root / per-worktree Git directory / Git common directory / branchを実験schemaへ束縛した。これらを生成・保護するcontrol plane、worktree作成主体、再配置、TOCTOU、API鮮度/再試行は未確定。
-- Q-04: GitHub Rules typeのpresenceだけでparameterの十分性を決めてよいか、classic branch protection / ruleset / enterprise hostをどう統一するかは未確定。
+- Q-04: `github_rules`と`github_branch_metadata`を明示sourceとして分離した。Rules typeのpresenceだけでparameterの十分性を決めてよいか、classic branch protection / ruleset / enterprise hostをどう統一するかは未確定。source自動fallbackは採用しない。
+- Q-04/Q-05: branch metadata sourceはremote branchの存在を要求する。task branch pre-creationの主体、credential、publicationとの順序は未確定。
 - Q-09/Q-11: 現行仕様BH-03が要求する監査記録のschema、保存、完全性、秘匿化、保持、配信保証、閲覧権限、書込失敗時の停止を実装していない。Evidence JSONは監査記録の代替ではない。必須CI、共有language-independent vector形式、部分適合表示も未確定。
 - direct `Write` / `Edit` は `path` / `file_path` の既存または最寄りの既存親までsymlinkを解決し、trusted worktree内だけを許可する。shell、未知tool、複数targetは実対象を証明できないため拒否する。対応範囲を広げるにはadapter capabilityとexecutor側のtarget bindingが必要である。
 - path containmentはmount point、hard link、検証後のsymlink置換を能力境界として防がない。配備時のmount構成、OS sandbox、実行時のopen/execute境界との結合が必要である。

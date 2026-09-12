@@ -19,6 +19,7 @@ func testRepositoryPolicy(t *testing.T, root string) string {
 	t.Helper()
 	b, err := json.Marshal(map[string]any{
 		"schema_version":          1,
+		"authority_source":        repository.AuthoritySourceGitHubRules,
 		"expected_repository":     "acme/widget",
 		"expected_repository_id":  123456,
 		"expected_worktree_root":  root,
@@ -138,8 +139,10 @@ func TestRuntimeAppliesRepositoryAuthorityInActualEvaluationPath(t *testing.T) {
 				HeadSHA:        strings.Repeat("a", 40),
 				Checks:         []repository.Check{{Name: "default_branch", Status: "fail", Detail: "prohibited"}},
 				Evidence: repository.Evidence{
-					RepositoryPolicySHA256: config.SHA256,
-					CheckedAt:              time.Unix(1_000, 0).UTC().Format(time.RFC3339Nano),
+					RepositoryPolicySHA256:       config.SHA256,
+					AuthoritySource:              repository.AuthoritySourceGitHubBranchMetadata,
+					GitHubCurrentAuthoritySHA256: strings.Repeat("b", 64),
+					CheckedAt:                    time.Unix(1_000, 0).UTC().Format(time.RFC3339Nano),
 				},
 			}, nil
 		},
@@ -156,7 +159,9 @@ func TestRuntimeAppliesRepositoryAuthorityInActualEvaluationPath(t *testing.T) {
 	if decision.Evidence == nil || decision.Evidence.Repository == nil ||
 		decision.Evidence.Repository.PolicySHA256 == "" ||
 		decision.Evidence.Repository.RepositoryID != 123456 ||
-		decision.Evidence.Repository.MutationTarget != filepath.Join(root, "README.md") {
+		decision.Evidence.Repository.MutationTarget != filepath.Join(root, "README.md") ||
+		decision.Evidence.Repository.AuthoritySource != repository.AuthoritySourceGitHubBranchMetadata ||
+		decision.Evidence.Repository.CurrentAuthoritySHA256 != strings.Repeat("b", 64) {
 		t.Fatalf("repository evidence missing: %+v", decision)
 	}
 }

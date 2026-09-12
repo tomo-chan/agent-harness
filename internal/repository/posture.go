@@ -98,15 +98,16 @@ type Check struct {
 	Detail string `json:"detail"`
 }
 
-// Evidence identifies the trusted repository policy and fresh local/GitHub
-// state used to derive a posture report. Current-branch and default-branch rule
-// responses are kept distinct because they support different checks.
+// Evidence identifies the trusted repository policy, explicitly selected
+// GitHub authority source, and fresh state used to derive a posture report.
+// Current/default response digests remain source-neutral and distinct.
 type Evidence struct {
-	RepositoryPolicySHA256   string
-	GitHubMetadataSHA256     string
-	GitHubDefaultRulesSHA256 string
-	GitHubCurrentRulesSHA256 string
-	CheckedAt                string
+	RepositoryPolicySHA256       string
+	AuthoritySource              string
+	GitHubMetadataSHA256         string
+	GitHubDefaultAuthoritySHA256 string
+	GitHubCurrentAuthoritySHA256 string
+	CheckedAt                    string
 }
 
 // Report is the repository posture and the evidence from which mutation
@@ -218,6 +219,7 @@ func Assess(ctx context.Context, action policy.Action, config *Config, git Git, 
 		Evidence: Evidence{CheckedAt: now.UTC().Format(time.RFC3339Nano)},
 	}
 	if config == nil || config.SchemaVersion != 1 || !repositoryName.MatchString(config.ExpectedRepository) ||
+		(config.AuthoritySource != AuthoritySourceGitHubRules && config.AuthoritySource != AuthoritySourceGitHubBranchMetadata) ||
 		config.ExpectedRepositoryID <= 0 || !validAbsoluteBoundary(config.ExpectedWorktreeRoot) ||
 		!validAbsoluteBoundary(config.ExpectedGitDir) || !validAbsoluteBoundary(config.ExpectedGitCommonDir) ||
 		!validBranch(config.ExpectedBranch) || config.SHA256 == "" {
@@ -225,6 +227,7 @@ func Assess(ctx context.Context, action policy.Action, config *Config, git Git, 
 		return report, fmt.Errorf("validated repository policy unavailable")
 	}
 	report.Evidence.RepositoryPolicySHA256 = config.SHA256
+	report.Evidence.AuthoritySource = config.AuthoritySource
 	if git == nil || github == nil {
 		report.add("authority_provider", "unknown", "Git and GitHub providers are required")
 		return report, fmt.Errorf("repository authority provider unavailable")
@@ -392,28 +395,33 @@ func Assess(ctx context.Context, action policy.Action, config *Config, git Git, 
 	} else {
 		report.add("default_branch", "pass", fmt.Sprintf("current=%s default=%s", branch, metadata.DefaultBranch))
 	}
-	if branch != "" && branch != "HEAD" {
+	if branch == "HEAD" || branch == "" {
+		return report, nil
+	}
+	switch config.AuthoritySource {
+	case AuthoritySourceGitHubRules:
 		currentRules, currentRulesDigest, err := github.EffectiveRuleTypes(ctx, config.ExpectedRepository, branch)
 		if err != nil {
 			report.add("current_branch_rules", "unknown", err.Error())
 			return report, err
 		}
-		report.Evidence.GitHubCurrentRulesSHA256 = currentRulesDigest
+		report.Evidence.GitHubCurrentAuthoritySHA256 = currentRulesDigest
 		if len(currentRules) != 0 {
 			report.add("protected_branch", "fail", "current branch has effective GitHub rules")
 		} else {
 			report.add("protected_branch", "pass", "current branch has no effective GitHub rules")
 		}
-	}
 
-	needsRules := config.Requirements.RequirePullRequest || config.Requirements.BlockForcePush || config.Requirements.RequiredStatusChecks
-	if needsRules {
+		needsRules := config.Requirements.RequirePullRequest || config.Requirements.BlockForcePush || config.Requirements.RequiredStatusChecks
+		if !needsRules {
+			break
+		}
 		rules, rulesDigest, err := github.EffectiveRuleTypes(ctx, config.ExpectedRepository, metadata.DefaultBranch)
 		if err != nil {
 			report.add("github_rules", "unknown", err.Error())
 			return report, err
 		}
-		report.Evidence.GitHubDefaultRulesSHA256 = rulesDigest
+		report.Evidence.GitHubDefaultAuthoritySHA256 = rulesDigest
 		for _, requirement := range []struct {
 			name     string
 			ruleType string
@@ -431,6 +439,27 @@ func Assess(ctx context.Context, action policy.Action, config *Config, git Git, 
 			} else {
 				report.add(requirement.name, "fail", "required "+requirement.ruleType+" rule is absent")
 			}
+		}
+	case AuthoritySourceGitHubBranchMetadata:
+		if config.Requirements.RequirePullRequest || config.Requirements.BlockForcePush || config.Requirements.RequiredStatusChecks {
+			report.add("authority_source", "unknown", "github_branch_metadata cannot evidence detailed default-branch protection requirements")
+			return report, fmt.Errorf("authority source cannot evidence configured requirements")
+		}
+		currentBranch, branchDigest, err := github.Branch(ctx, config.ExpectedRepository, branch)
+		if err != nil {
+			report.add("current_branch_metadata", "unknown", err.Error())
+			return report, err
+		}
+		report.Evidence.GitHubCurrentAuthoritySHA256 = branchDigest
+		if currentBranch.Name != branch {
+			report.add("current_branch_metadata", "fail", fmt.Sprintf("expected %s; GitHub returned %s", branch, currentBranch.Name))
+		} else {
+			report.add("current_branch_metadata", "pass", currentBranch.Name)
+		}
+		if currentBranch.Protected {
+			report.add("protected_branch", "fail", "current branch is protected in GitHub branch metadata")
+		} else {
+			report.add("protected_branch", "pass", "current branch is not protected in GitHub branch metadata")
 		}
 	}
 	return report, nil

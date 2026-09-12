@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "authority_source": "github_rules",
   "expected_repository": "acme/widget",
   "expected_repository_id": 123456789,
   "expected_worktree_root": "/srv/agent-harness/worktrees/task-123",
