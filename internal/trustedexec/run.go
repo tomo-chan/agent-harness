@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/tomo-chan/agent-harness/internal/policy"
+	"github.com/tomo-chan/agent-harness/internal/publication"
 	"github.com/tomo-chan/agent-harness/internal/repository"
 )
 
@@ -81,23 +82,66 @@ var unsupportedSelectors = []string{
 	"SSL_CERT_DIR",
 }
 
-type authorityEvaluator func(context.Context, policy.Action, *repository.Config) (repository.Report, error)
+type authorityEvaluator func(context.Context, policy.Action, *repository.Config, bool) (repository.Report, error)
+type publicationEvaluator func(context.Context, policy.Action, policy.Decision, publication.Classification, repository.Report) (policy.Decision, error)
 
 type runtime struct {
-	executable func() (string, error)
-	getenv     func(string) string
-	authority  authorityEvaluator
+	executable  func() (string, error)
+	getenv      func(string) string
+	authority   authorityEvaluator
+	publication publicationEvaluator
 }
 
-func productionAuthority(ctx context.Context, action policy.Action, config *repository.Config) (repository.Report, error) {
-	return repository.Assess(
+func productionAuthority(ctx context.Context, action policy.Action, config *repository.Config, forPublication bool) (repository.Report, error) {
+	git := repository.SystemGit{Path: "/usr/bin/git"}
+	github := repository.NewGitHubClient(os.Getenv("AGENT_HARNESS_GITHUB_TOKEN"))
+	if forPublication {
+		return repository.AssessPublication(ctx, action, config, git, github, time.Now())
+	}
+	return repository.Assess(ctx, action, config, git, github, time.Now())
+}
+
+func productionPublication(ctx context.Context, action policy.Action, result policy.Decision, classification publication.Classification, report repository.Report) (policy.Decision, error) {
+	return publication.Evaluate(
 		ctx,
 		action,
-		config,
+		result,
+		classification,
+		report,
 		repository.SystemGit{Path: "/usr/bin/git"},
 		repository.NewGitHubClient(os.Getenv("AGENT_HARNESS_GITHUB_TOKEN")),
+		os.Environ(),
 		time.Now(),
 	)
+}
+
+func attachRepositoryEvidence(decision *policy.Decision, report repository.Report) error {
+	if decision.Evidence == nil {
+		return fmt.Errorf("policy evidence is required for repository authority")
+	}
+	checks := make([]policy.RepositoryCheckEvidence, len(report.Checks))
+	for i, check := range report.Checks {
+		checks[i] = policy.RepositoryCheckEvidence{Name: check.Name, Status: check.Status, Detail: check.Detail}
+	}
+	decision.Evidence.Repository = &policy.RepositoryEvidence{
+		PolicySHA256:           report.Evidence.RepositoryPolicySHA256,
+		PostureState:           report.State,
+		Repository:             report.Repository,
+		RepositoryID:           report.RepositoryID,
+		RepoRoot:               report.RepoRoot,
+		MutationTarget:         report.MutationTarget,
+		Branch:                 report.Branch,
+		HeadSHA:                report.HeadSHA,
+		DefaultBranch:          report.DefaultBranch,
+		LinkedWorktree:         report.LinkedWorktree,
+		AuthoritySource:        report.Evidence.AuthoritySource,
+		MetadataSHA256:         report.Evidence.GitHubMetadataSHA256,
+		DefaultAuthoritySHA256: report.Evidence.GitHubDefaultAuthoritySHA256,
+		CurrentAuthoritySHA256: report.Evidence.GitHubCurrentAuthoritySHA256,
+		CheckedAt:              report.Evidence.CheckedAt,
+		Checks:                 checks,
+	}
+	return nil
 }
 
 func (rt runtime) evaluate(in io.Reader, args []string) (policy.Decision, string) {
@@ -150,36 +194,18 @@ func (rt runtime) evaluate(in io.Reader, args []string) (policy.Decision, string
 	if err != nil {
 		return policy.Decision{}, "evaluation-error"
 	}
-	if d.Decision == "deny" || !repository.RequiresAuthority(a) {
+	classification := publication.Classify(a)
+	if d.Decision == "deny" || (!classification.Candidate && !repository.RequiresAuthority(a)) {
 		return d, ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	report, err := rt.authority(ctx, a, repositoryConfig)
-	if d.Evidence == nil {
+	if rt.authority == nil {
 		return policy.Decision{}, "repository-authority-error"
 	}
-	checks := make([]policy.RepositoryCheckEvidence, len(report.Checks))
-	for i, check := range report.Checks {
-		checks[i] = policy.RepositoryCheckEvidence{Name: check.Name, Status: check.Status, Detail: check.Detail}
-	}
-	d.Evidence.Repository = &policy.RepositoryEvidence{
-		PolicySHA256:           report.Evidence.RepositoryPolicySHA256,
-		PostureState:           report.State,
-		Repository:             report.Repository,
-		RepositoryID:           report.RepositoryID,
-		RepoRoot:               report.RepoRoot,
-		MutationTarget:         report.MutationTarget,
-		Branch:                 report.Branch,
-		HeadSHA:                report.HeadSHA,
-		DefaultBranch:          report.DefaultBranch,
-		LinkedWorktree:         report.LinkedWorktree,
-		AuthoritySource:        report.Evidence.AuthoritySource,
-		MetadataSHA256:         report.Evidence.GitHubMetadataSHA256,
-		DefaultAuthoritySHA256: report.Evidence.GitHubDefaultAuthoritySHA256,
-		CurrentAuthoritySHA256: report.Evidence.GitHubCurrentAuthoritySHA256,
-		CheckedAt:              report.Evidence.CheckedAt,
-		Checks:                 checks,
+	report, err := rt.authority(ctx, a, repositoryConfig, classification.Candidate)
+	if evidenceErr := attachRepositoryEvidence(&d, report); evidenceErr != nil {
+		return policy.Decision{}, "repository-authority-error"
 	}
 	if err != nil {
 		failed := policy.Result("deny", "Agent Harness evaluation failed: repository-authority-error", "repository-authority-error")
@@ -190,6 +216,16 @@ func (rt runtime) evaluate(in io.Reader, args []string) (policy.Decision, string
 		denied := policy.Result("deny", report.Summary(), "repository-authority")
 		denied.Evidence = d.Evidence
 		return denied, ""
+	}
+	if classification.Candidate {
+		if rt.publication == nil {
+			return d, "publication-evidence-error"
+		}
+		validated, publicationErr := rt.publication(ctx, a, d, classification, report)
+		if publicationErr != nil {
+			return validated, "publication-evidence-error"
+		}
+		return validated, ""
 	}
 	return d, ""
 }
@@ -214,6 +250,9 @@ func (rt runtime) run(in io.Reader, out io.Writer, args []string) int {
 // The caller must deny on nonzero exit, missing/malformed output, crash, or
 // timeout; ask is not permission.
 func Run(in io.Reader, out io.Writer, args []string) int {
-	rt := runtime{executable: os.Executable, getenv: os.Getenv, authority: productionAuthority}
+	rt := runtime{
+		executable: os.Executable, getenv: os.Getenv,
+		authority: productionAuthority, publication: productionPublication,
+	}
 	return rt.run(in, out, args)
 }

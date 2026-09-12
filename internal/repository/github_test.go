@@ -17,6 +17,8 @@ func TestAPIClientReadsMetadataAndEffectiveRules(t *testing.T) {
 			_, _ = w.Write([]byte(`{"id":123456,"full_name":"acme/widget","default_branch":"main","archived":false,"disabled":false}`))
 		case "/repos/acme/widget/branches/feature/task":
 			_, _ = w.Write([]byte(`{"name":"feature/task","protected":false}`))
+		case "/repos/acme/widget/git/ref/heads/feature/task":
+			_, _ = w.Write([]byte(`{"ref":"refs/heads/feature/task","object":{"type":"commit","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`))
 		case "/repos/acme/widget/rules/branches/main":
 			_, _ = w.Write([]byte(`[{"type":"pull_request"},{"type":"non_fast_forward"}]`))
 		default:
@@ -35,9 +37,32 @@ func TestAPIClientReadsMetadataAndEffectiveRules(t *testing.T) {
 	if err != nil || branch.Name != "feature/task" || branch.Protected || branchDigest == "" {
 		t.Fatalf("branch=%+v digest=%q err=%v", branch, branchDigest, err)
 	}
+	head, headDigest, err := client.BranchHead(context.Background(), "acme/widget", "feature/task")
+	if err != nil || head != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || headDigest == "" {
+		t.Fatalf("head=%q digest=%q err=%v", head, headDigest, err)
+	}
 	rules, rulesDigest, err := client.EffectiveRuleTypes(context.Background(), "acme/widget", "main")
 	if err != nil || !rules["pull_request"] || !rules["non_fast_forward"] || rulesDigest == "" {
 		t.Fatalf("rules=%+v digest=%q err=%v", rules, rulesDigest, err)
+	}
+}
+
+func TestAPIClientBranchHeadFailsClosedOnMismatchedRefOrObject(t *testing.T) {
+	for _, body := range []string{
+		`{"ref":"refs/heads/other","object":{"type":"commit","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`,
+		`{"ref":"refs/heads/feature/task","object":{"type":"tag","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`,
+		`{"ref":"refs/heads/feature/task","object":{"type":"commit","sha":"invalid"}}`,
+		`{"ref":"refs/heads/feature/task","object":{"type":"commit"}}`,
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(body))
+		}))
+		client := NewGitHubClient("")
+		client.baseURL = server.URL
+		if _, _, err := client.BranchHead(context.Background(), "acme/widget", "feature/task"); err == nil {
+			t.Errorf("accepted malformed GitHub branch ref: %s", body)
+		}
+		server.Close()
 	}
 }
 

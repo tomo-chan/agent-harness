@@ -63,6 +63,7 @@ flowchart LR
 - [Agent Harness 用語集](docs/spec/agent-harness-glossary.ja.md) — 仕様・実装・保証で共有する用語の定義
 - [Go 実装ノート](docs/implementation/go/implementation-notes.ja.md) — 信頼された実行環境 / ポリシー強制の実験的具体化と根拠
 - [Go リポジトリ変更権限 / 状態 実装ノート](docs/implementation/go/repository-authority-posture.ja.md) — リポジトリ権限の具体化、S2 の根拠、Python 比較、未決事項
+- [Go 公開保護 実装ノート](docs/implementation/go/publication-guard.ja.md) — 公開意味論の具体化、S3 の根拠、Python 比較、未決事項
 - [アーキテクチャ](docs/ja/01-architecture.md) ([English](docs/01-architecture.md))
 - [設計原則](docs/ja/02-design-principles.md) ([English](docs/02-design-principles.md))
 - [セキュリティモデル](docs/ja/03-security-model.md) ([English](docs/03-security-model.md))

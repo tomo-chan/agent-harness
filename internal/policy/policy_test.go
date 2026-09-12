@@ -67,6 +67,36 @@ func TestAllowRulesRejectCompoundShellCommands(t *testing.T) {
 	}
 }
 
+func TestPublicationPolicyOnlyNominatesCanonicalCandidates(t *testing.T) {
+	f, err := os.Open("../../reference/policies/policy.example.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	e, err := Load(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		command string
+		want    string
+	}{
+		{"git push origin HEAD:refs/heads/feature/task", "allow"},
+		{"git push --set-upstream origin HEAD:refs/heads/feature/task", "allow"},
+		{"git push origin feature/task", "ask"},
+		{"git push --force-with-lease origin HEAD:refs/heads/feature/task", "deny"},
+		{"gh pr create --fill", "allow"},
+		{"gh pr create --base main --fill", "ask"},
+		{"gh pr create --title title", "ask"},
+		{"gh pr view 21", "allow"},
+	} {
+		decision, err := e.Evaluate(commandAction("exec", tc.command))
+		if err != nil || decision.Decision != tc.want {
+			t.Errorf("%q: decision=%+v err=%v", tc.command, decision, err)
+		}
+	}
+}
+
 func TestPriorityAndPredicates(t *testing.T) {
 	for _, tc := range []struct{ p, want, rule string }{
 		{`{"allow":[{"id":"a"}],"ask":[{"id":"q"}],"deny":[{"id":"d"}]}`, "deny", "d"},
