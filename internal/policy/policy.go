@@ -25,7 +25,12 @@ type Decision struct {
 type Evidence struct {
 	PolicySHA256 string `json:"policy_sha256"`
 	ActionSHA256 string `json:"action_sha256"`
+	Evaluator    string `json:"evaluator"`
 }
+
+// Evaluator identifies the experimental normalization and matching semantics.
+// It is not a source or build provenance identifier.
+const Evaluator = "go-s1-experiment-v2"
 
 func Result(outcome, reason, rule string) Decision {
 	return Decision{Decision: outcome, Reason: reason, Rule: &rule}
@@ -111,7 +116,10 @@ func Load(r io.Reader) (*Engine, error) {
 	return e, nil
 }
 
-type Action struct{ Tool, Command string }
+type Action struct {
+	Tool  string
+	Input map[string]any
+}
 
 // ParseHook supports the two existing generic S1 spellings. Ambiguous aliases
 // and wrong types are rejected instead of silently becoming empty commands.
@@ -157,44 +165,32 @@ func ParseHook(r io.Reader) (Action, error) {
 	if !ok {
 		return Action{}, fmt.Errorf("invalid input")
 	}
-	command := ""
-	if v, exists := input["command"]; exists {
-		switch v := v.(type) {
-		case string:
-			command = v
-		case []any:
-			parts := make([]string, len(v))
-			for i, x := range v {
-				s, ok := x.(string)
-				if !ok {
-					return Action{}, fmt.Errorf("invalid command element")
-				}
-				parts[i] = s
-			}
-			command = strings.Join(parts, " ")
-		default:
-			return Action{}, fmt.Errorf("invalid command")
-		}
-	} else if tool == "exec" || tool == "Bash" {
-		return Action{}, fmt.Errorf("missing command")
+	a := Action{Tool: tool, Input: input}
+	if _, err := command(a); err != nil {
+		return Action{}, err
 	}
-	return Action{tool, command}, nil
+	return a, nil
 }
 
-func (e *Engine) Evaluate(a Action) Decision {
-	actionJSON, err := json.Marshal(struct {
-		Tool    string `json:"tool"`
-		Command string `json:"command"`
-	}{a.Tool, a.Command})
+func (e *Engine) Evaluate(a Action) (Decision, error) {
+	command, err := command(a)
 	if err != nil {
-		panic("fixed normalized action cannot fail JSON serialization")
+		return Decision{}, err
+	}
+	actionJSON, err := json.Marshal(struct {
+		Tool  string         `json:"tool"`
+		Input map[string]any `json:"input"`
+	}{a.Tool, a.Input})
+	if err != nil {
+		return Decision{}, fmt.Errorf("serialize normalized action: %w", err)
 	}
 	actionDigest := sha256.Sum256(actionJSON)
 	evidence := &Evidence{
 		PolicySHA256: e.policySHA256,
 		ActionSHA256: hex.EncodeToString(actionDigest[:]),
+		Evaluator:    Evaluator,
 	}
-	texts := [3]string{a.Tool, a.Command, a.Tool + "\n" + a.Command}
+	texts := [3]string{a.Tool, command, string(actionJSON)}
 	for i, rules := range e.rules {
 		for _, r := range rules {
 			match := true
@@ -205,11 +201,28 @@ func (e *Engine) Evaluate(a Action) Decision {
 				}
 			}
 			if match {
-				return Decision{Decision: outcomes[i], Reason: r.reason, Rule: r.id, Evidence: evidence}
+				return Decision{Decision: outcomes[i], Reason: r.reason, Rule: r.id, Evidence: evidence}, nil
 			}
 		}
 	}
 	d := Result(e.fallback, "no explicit policy rule matched", "default")
 	d.Evidence = evidence
-	return d
+	return d, nil
+}
+
+func command(a Action) (string, error) {
+	v, exists := a.Input["command"]
+	if !exists {
+		if a.Tool == "exec" || a.Tool == "Bash" {
+			return "", fmt.Errorf("missing command")
+		}
+		return "", nil
+	}
+	command, ok := v.(string)
+	if !ok {
+		// Array execution semantics differ across adapters. Joining argv loses
+		// boundaries, so S1 rejects it until the common schema defines it.
+		return "", fmt.Errorf("command must be a string")
+	}
+	return command, nil
 }

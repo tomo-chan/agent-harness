@@ -80,7 +80,11 @@ func evaluate(in io.Reader, args []string) (policy.Decision, string) {
 	if err != nil {
 		return policy.Decision{}, "input-error"
 	}
-	return e.Evaluate(a), ""
+	d, err := e.Evaluate(a)
+	if err != nil {
+		return policy.Decision{}, "evaluation-error"
+	}
+	return d, ""
 }
 
 // Run emits one decision. A valid allow/ask/deny exits 0; configuration/input
