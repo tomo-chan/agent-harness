@@ -16,8 +16,10 @@ import (
 const githubAPI = "https://api.github.com"
 
 // Metadata contains the authoritative GitHub repository fields used by the
-// posture decision. The API response digest is retained separately as Evidence.
+// posture decision. ID is the immutable identity bound by trusted policy. The
+// API response digest is retained separately as Evidence.
 type Metadata struct {
+	ID            int64  `json:"id"`
 	FullName      string `json:"full_name"`
 	DefaultBranch string `json:"default_branch"`
 	Archived      bool   `json:"archived"`
@@ -110,15 +112,27 @@ func (c *APIClient) Repository(ctx context.Context, name string) (Metadata, stri
 	if err != nil {
 		return Metadata{}, "", err
 	}
-	var metadata Metadata
-	digest, err := c.get(ctx, path, &metadata)
+	var response struct {
+		ID            *int64 `json:"id"`
+		FullName      string `json:"full_name"`
+		DefaultBranch string `json:"default_branch"`
+		Archived      *bool  `json:"archived"`
+		Disabled      *bool  `json:"disabled"`
+	}
+	digest, err := c.get(ctx, path, &response)
 	if err != nil {
 		return Metadata{}, "", err
 	}
-	if !repositoryName.MatchString(metadata.FullName) || metadata.DefaultBranch == "" {
-		return Metadata{}, "", fmt.Errorf("GitHub metadata omitted required identity or default branch")
+	if response.ID == nil || *response.ID <= 0 || !repositoryName.MatchString(response.FullName) || response.DefaultBranch == "" || response.Archived == nil || response.Disabled == nil {
+		return Metadata{}, "", fmt.Errorf("GitHub metadata omitted required identity, state, or default branch")
 	}
-	return metadata, digest, nil
+	return Metadata{
+		ID:            *response.ID,
+		FullName:      response.FullName,
+		DefaultBranch: response.DefaultBranch,
+		Archived:      *response.Archived,
+		Disabled:      *response.Disabled,
+	}, digest, nil
 }
 
 // EffectiveRuleTypes gets the current rule types GitHub reports as applying to
@@ -129,7 +143,7 @@ func (c *APIClient) EffectiveRuleTypes(ctx context.Context, name, branch string)
 		return nil, "", err
 	}
 	var rules []struct {
-		Type string `json:"type"`
+		Type *string `json:"type"`
 	}
 	digest, err := c.get(ctx, path+"/rules/branches/"+url.PathEscape(branch), &rules)
 	if err != nil {
@@ -137,9 +151,10 @@ func (c *APIClient) EffectiveRuleTypes(ctx context.Context, name, branch string)
 	}
 	types := make(map[string]bool, len(rules))
 	for _, rule := range rules {
-		if rule.Type != "" {
-			types[rule.Type] = true
+		if rule.Type == nil || *rule.Type == "" {
+			return nil, "", fmt.Errorf("GitHub rule omitted required type")
 		}
+		types[*rule.Type] = true
 	}
 	return types, digest, nil
 }

@@ -14,7 +14,7 @@ func TestAPIClientReadsMetadataAndEffectiveRules(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case "/repos/acme/widget":
-			_, _ = w.Write([]byte(`{"full_name":"acme/widget","default_branch":"main","archived":false,"disabled":false}`))
+			_, _ = w.Write([]byte(`{"id":123456,"full_name":"acme/widget","default_branch":"main","archived":false,"disabled":false}`))
 		case "/repos/acme/widget/rules/branches/main":
 			_, _ = w.Write([]byte(`[{"type":"pull_request"},{"type":"non_fast_forward"}]`))
 		default:
@@ -26,7 +26,7 @@ func TestAPIClientReadsMetadataAndEffectiveRules(t *testing.T) {
 	client := NewGitHubClient("test-token")
 	client.baseURL = server.URL
 	metadata, metadataDigest, err := client.Repository(context.Background(), "acme/widget")
-	if err != nil || metadata.FullName != "acme/widget" || metadataDigest == "" {
+	if err != nil || metadata.ID != 123456 || metadata.FullName != "acme/widget" || metadataDigest == "" {
 		t.Fatalf("metadata=%+v digest=%q err=%v", metadata, metadataDigest, err)
 	}
 	rules, rulesDigest, err := client.EffectiveRuleTypes(context.Background(), "acme/widget", "main")
@@ -43,6 +43,8 @@ func TestAPIClientFailsClosedOnStatusAndInvalidResponse(t *testing.T) {
 		{http.StatusForbidden, `{}`},
 		{http.StatusOK, `{`},
 		{http.StatusOK, `{"full_name":"acme/widget"}`},
+		{http.StatusOK, `{"id":123456,"full_name":"acme/widget","default_branch":"main"}`},
+		{http.StatusOK, `{"id":123456,"full_name":"acme/widget","default_branch":"main","archived":false}`},
 	} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(tc.status)
@@ -54,5 +56,17 @@ func TestAPIClientFailsClosedOnStatusAndInvalidResponse(t *testing.T) {
 			t.Errorf("accepted status=%d body=%q", tc.status, tc.body)
 		}
 		server.Close()
+	}
+}
+
+func TestAPIClientRejectsRuleWithoutType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{}]`))
+	}))
+	defer server.Close()
+	client := NewGitHubClient("")
+	client.baseURL = server.URL
+	if _, _, err := client.EffectiveRuleTypes(context.Background(), "acme/widget", "feature/task"); err == nil {
+		t.Fatal("accepted GitHub rule without type")
 	}
 }

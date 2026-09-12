@@ -15,6 +15,23 @@ import (
 	"github.com/tomo-chan/agent-harness/internal/repository"
 )
 
+func testRepositoryPolicy(t *testing.T, root string) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{
+		"schema_version":          1,
+		"expected_repository":     "acme/widget",
+		"expected_repository_id":  123456,
+		"expected_worktree_root":  root,
+		"expected_git_dir":        root,
+		"expected_git_common_dir": root,
+		"expected_branch":         "feature/task",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
 func TestTrustedPaths(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -91,7 +108,7 @@ func TestRuntimeAppliesRepositoryAuthorityInActualEvaluationPath(t *testing.T) {
 	for name, contents := range map[string]string{
 		"agent-harness":           "binary",
 		"policy.json":             `{"default":"ask"}`,
-		repository.ConfigFilename: `{"schema_version":1,"expected_repository":"acme/widget"}`,
+		repository.ConfigFilename: testRepositoryPolicy(t, root),
 	} {
 		if err := os.WriteFile(filepath.Join(root, name), []byte(contents), 0o600); err != nil {
 			t.Fatal(err)
@@ -108,16 +125,18 @@ func TestRuntimeAppliesRepositoryAuthorityInActualEvaluationPath(t *testing.T) {
 		},
 		authority: func(_ context.Context, action policy.Action, config *repository.Config) (repository.Report, error) {
 			called = true
-			if action.CWD != root || config.ExpectedRepository != "acme/widget" {
+			if action.CWD != root || action.Target != "README.md" || config.ExpectedRepository != "acme/widget" {
 				t.Fatalf("unexpected authority input: action=%+v config=%+v", action, config)
 			}
 			return repository.Report{
-				State:      "BLOCKED",
-				Repository: "acme/widget",
-				RepoRoot:   root,
-				Branch:     "main",
-				HeadSHA:    strings.Repeat("a", 40),
-				Checks:     []repository.Check{{Name: "default_branch", Status: "fail", Detail: "prohibited"}},
+				State:          "BLOCKED",
+				Repository:     "acme/widget",
+				RepositoryID:   123456,
+				RepoRoot:       root,
+				MutationTarget: filepath.Join(root, "README.md"),
+				Branch:         "main",
+				HeadSHA:        strings.Repeat("a", 40),
+				Checks:         []repository.Check{{Name: "default_branch", Status: "fail", Detail: "prohibited"}},
 				Evidence: repository.Evidence{
 					RepositoryPolicySHA256: config.SHA256,
 					CheckedAt:              time.Unix(1_000, 0).UTC().Format(time.RFC3339Nano),
@@ -134,7 +153,10 @@ func TestRuntimeAppliesRepositoryAuthorityInActualEvaluationPath(t *testing.T) {
 	if code != 0 || !called || decision.Decision != "deny" || decision.Rule == nil || *decision.Rule != "repository-authority" {
 		t.Fatalf("decision=%+v code=%d called=%t", decision, code, called)
 	}
-	if decision.Evidence == nil || decision.Evidence.Repository == nil || decision.Evidence.Repository.PolicySHA256 == "" {
+	if decision.Evidence == nil || decision.Evidence.Repository == nil ||
+		decision.Evidence.Repository.PolicySHA256 == "" ||
+		decision.Evidence.Repository.RepositoryID != 123456 ||
+		decision.Evidence.Repository.MutationTarget != filepath.Join(root, "README.md") {
 		t.Fatalf("repository evidence missing: %+v", decision)
 	}
 }
@@ -145,7 +167,7 @@ func TestRuntimeAuthorityFailurePreservesUnknownEvidenceAndExitsTwo(t *testing.T
 	for name, contents := range map[string]string{
 		"agent-harness":           "binary",
 		"policy.json":             `{"default":"allow"}`,
-		repository.ConfigFilename: `{"schema_version":1,"expected_repository":"acme/widget"}`,
+		repository.ConfigFilename: testRepositoryPolicy(t, root),
 	} {
 		if err := os.WriteFile(filepath.Join(root, name), []byte(contents), 0o600); err != nil {
 			t.Fatal(err)

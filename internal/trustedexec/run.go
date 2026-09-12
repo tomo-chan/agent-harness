@@ -77,6 +77,8 @@ var unsupportedSelectors = []string{
 	"AGENT_HARNESS_EXPECTED_REPOSITORY",
 	"AGENT_HARNESS_MINIMUM_POSTURE_MODE",
 	"AGENT_HARNESS_STATE_DIR",
+	"SSL_CERT_FILE",
+	"SSL_CERT_DIR",
 }
 
 type authorityEvaluator func(context.Context, policy.Action, *repository.Config) (repository.Report, error)
@@ -90,7 +92,7 @@ type runtime struct {
 func productionAuthority(ctx context.Context, action policy.Action, config *repository.Config) (repository.Report, error) {
 	return repository.Assess(
 		ctx,
-		action.CWD,
+		action,
 		config,
 		repository.SystemGit{Path: "/usr/bin/git"},
 		repository.NewGitHubClient(os.Getenv("AGENT_HARNESS_GITHUB_TOKEN")),
@@ -162,18 +164,21 @@ func (rt runtime) evaluate(in io.Reader, args []string) (policy.Decision, string
 		checks[i] = policy.RepositoryCheckEvidence{Name: check.Name, Status: check.Status, Detail: check.Detail}
 	}
 	d.Evidence.Repository = &policy.RepositoryEvidence{
-		PolicySHA256:   report.Evidence.RepositoryPolicySHA256,
-		PostureState:   report.State,
-		Repository:     report.Repository,
-		RepoRoot:       report.RepoRoot,
-		Branch:         report.Branch,
-		HeadSHA:        report.HeadSHA,
-		DefaultBranch:  report.DefaultBranch,
-		LinkedWorktree: report.LinkedWorktree,
-		MetadataSHA256: report.Evidence.GitHubMetadataSHA256,
-		RulesSHA256:    report.Evidence.GitHubRulesSHA256,
-		CheckedAt:      report.Evidence.CheckedAt,
-		Checks:         checks,
+		PolicySHA256:             report.Evidence.RepositoryPolicySHA256,
+		PostureState:             report.State,
+		Repository:               report.Repository,
+		RepositoryID:             report.RepositoryID,
+		RepoRoot:                 report.RepoRoot,
+		MutationTarget:           report.MutationTarget,
+		Branch:                   report.Branch,
+		HeadSHA:                  report.HeadSHA,
+		DefaultBranch:            report.DefaultBranch,
+		LinkedWorktree:           report.LinkedWorktree,
+		MetadataSHA256:           report.Evidence.GitHubMetadataSHA256,
+		DefaultRulesSHA256:       report.Evidence.GitHubDefaultRulesSHA256,
+		CurrentBranchRulesSHA256: report.Evidence.GitHubCurrentRulesSHA256,
+		CheckedAt:                report.Evidence.CheckedAt,
+		Checks:                   checks,
 	}
 	if err != nil {
 		failed := policy.Result("deny", "Agent Harness evaluation failed: repository-authority-error", "repository-authority-error")

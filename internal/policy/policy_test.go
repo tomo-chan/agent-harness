@@ -194,8 +194,9 @@ func TestHookParsing(t *testing.T) {
 	if err != nil || withCWD.CWD != "/work/repository" {
 		t.Fatalf("cwd not preserved: %+v %v", withCWD, err)
 	}
-	if _, err := ParseHook(strings.NewReader(`{"tool":"Read","input":{"path":"x"}}`)); err != nil {
-		t.Fatal(err)
+	withTarget, err := ParseHook(strings.NewReader(`{"tool":"Write","input":{"path":"x"}}`))
+	if err != nil || withTarget.Target != "x" {
+		t.Fatalf("target not preserved: %+v %v", withTarget, err)
 	}
 	for _, raw := range []string{
 		`null`, `[]`, `{}`, `{"tool":3,"input":{}}`, `{"tool":"","input":{}}`,
@@ -211,6 +212,8 @@ func TestHookParsing(t *testing.T) {
 		`{"tool":"exec","input":{"command":"x"},"cwd":" "}`,
 		`{"tool":"exec","input":{"command":"x"},"context":[]}`,
 		`{"tool":"exec","input":{"command":"x"},"cwd":"/one","context":{"cwd":"/two"}}`,
+		`{"tool":"Write","input":{"path":3}}`,
+		`{"tool":"Write","input":{"path":"one","file_path":"two"}}`,
 		`{"tool":"exec","input":{"command":"x"}} false`,
 	} {
 		if _, err := ParseHook(strings.NewReader(raw)); err == nil {

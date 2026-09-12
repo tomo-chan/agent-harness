@@ -9,7 +9,7 @@ import (
 func TestRequiresAuthorityUsesPositiveReadOnlyClassification(t *testing.T) {
 	for _, action := range []policy.Action{
 		{Tool: "Read"},
-		{Tool: "grep"},
+		{Tool: "Grep"},
 		{Tool: "exec", Input: map[string]any{"command": "git status"}},
 		{Tool: "Bash", Input: map[string]any{"command": "git branch --show-current"}},
 	} {
@@ -24,6 +24,9 @@ func TestRequiresAuthorityUsesPositiveReadOnlyClassification(t *testing.T) {
 		{Tool: "exec", Input: map[string]any{"command": "git status --short"}},
 		{Tool: "exec", Input: map[string]any{"command": "git status && touch changed"}},
 		{Tool: "mcp_delete"},
+		{Tool: "mcp_delete", Command: "pwd"},
+		{Tool: "Read", Command: "rm -rf worktree"},
+		{Tool: "read"},
 		{Tool: "unknown"},
 	} {
 		if !RequiresAuthority(action) {

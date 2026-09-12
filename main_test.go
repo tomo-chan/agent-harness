@@ -26,7 +26,19 @@ func TestSingleBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	valid := `{"default":"ask","allow":[{"command_regex":"^git status$"}],"deny":[{"command_regex":"danger"}]}`
-	repositoryConfig := `{"schema_version":1,"expected_repository":"acme/widget"}`
+	repositoryConfigBytes, err := json.Marshal(map[string]any{
+		"schema_version":          1,
+		"expected_repository":     "acme/widget",
+		"expected_repository_id":  123456,
+		"expected_worktree_root":  cwd,
+		"expected_git_dir":        cwd,
+		"expected_git_common_dir": cwd,
+		"expected_branch":         "feature/task",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repositoryConfig := string(repositoryConfigBytes)
 	input := `{"tool":"exec","input":{"command":"git status"}}`
 	for _, tc := range []struct {
 		name, config, input, want          string
@@ -50,6 +62,8 @@ func TestSingleBinary(t *testing.T) {
 		{name: "repository policy override", config: valid, input: input, env: []string{"AGENT_HARNESS_TRUSTED_REPOSITORY_SECURITY_POLICY=" + evil}, want: "deny", code: 2},
 		{name: "expected repository override", config: valid, input: input, env: []string{"AGENT_HARNESS_EXPECTED_REPOSITORY=evil/repository"}, want: "deny", code: 2},
 		{name: "posture mode override", config: valid, input: input, env: []string{"AGENT_HARNESS_MINIMUM_POSTURE_MODE=warn"}, want: "deny", code: 2},
+		{name: "TLS certificate file override", config: valid, input: input, env: []string{"SSL_CERT_FILE=" + evil}, want: "deny", code: 2},
+		{name: "TLS certificate directory override", config: valid, input: input, env: []string{"SSL_CERT_DIR=" + cwd}, want: "deny", code: 2},
 		{name: "arbitrary cli path", config: valid, input: input, args: []string{evil}, want: "deny", code: 2},
 		{name: "legacy policy ignored", config: `{"default":"deny"}`, input: input, want: "deny"},
 	} {

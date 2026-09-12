@@ -31,21 +31,24 @@ type Evidence struct {
 }
 
 // RepositoryEvidence binds a decision to the trusted repository policy and
-// fresh local/GitHub state used by Repository Authority / Posture. Empty GitHub
-// rule evidence means no rule query was required by the trusted policy.
+// fresh local/GitHub state used by Repository Authority / Posture. Rule digests
+// identify the exact default-branch and current-branch responses evaluated.
 type RepositoryEvidence struct {
-	PolicySHA256   string                    `json:"policy_sha256"`
-	PostureState   string                    `json:"posture_state"`
-	Repository     string                    `json:"repository"`
-	RepoRoot       string                    `json:"repo_root"`
-	Branch         string                    `json:"branch"`
-	HeadSHA        string                    `json:"head_sha"`
-	DefaultBranch  string                    `json:"default_branch"`
-	LinkedWorktree bool                      `json:"linked_worktree"`
-	MetadataSHA256 string                    `json:"github_metadata_sha256"`
-	RulesSHA256    string                    `json:"github_rules_sha256,omitempty"`
-	CheckedAt      string                    `json:"checked_at"`
-	Checks         []RepositoryCheckEvidence `json:"checks"`
+	PolicySHA256             string                    `json:"policy_sha256"`
+	PostureState             string                    `json:"posture_state"`
+	Repository               string                    `json:"repository"`
+	RepositoryID             int64                     `json:"repository_id"`
+	RepoRoot                 string                    `json:"repo_root"`
+	MutationTarget           string                    `json:"mutation_target"`
+	Branch                   string                    `json:"branch"`
+	HeadSHA                  string                    `json:"head_sha"`
+	DefaultBranch            string                    `json:"default_branch"`
+	LinkedWorktree           bool                      `json:"linked_worktree"`
+	MetadataSHA256           string                    `json:"github_metadata_sha256"`
+	DefaultRulesSHA256       string                    `json:"github_default_rules_sha256,omitempty"`
+	CurrentBranchRulesSHA256 string                    `json:"github_current_branch_rules_sha256,omitempty"`
+	CheckedAt                string                    `json:"checked_at"`
+	Checks                   []RepositoryCheckEvidence `json:"checks"`
 }
 
 // RepositoryCheckEvidence retains pass/fail/unknown without converting missing
@@ -145,11 +148,14 @@ func Load(r io.Reader) (*Engine, error) {
 }
 
 // Action preserves the complete normalized tool input for policy matching and
-// evidence. CWD is untrusted context until Repository Guard validates it.
+// evidence. CWD and the derived Command/Target fields are untrusted until
+// Repository Guard validates them against the trusted task/worktree binding.
 type Action struct {
-	Tool  string
-	Input map[string]any
-	CWD   string
+	Tool    string
+	Input   map[string]any
+	Command string
+	CWD     string
+	Target  string
 }
 
 // ParseHook supports the two existing generic hook spellings. Ambiguous aliases
@@ -197,8 +203,22 @@ func ParseHook(r io.Reader) (Action, error) {
 		return Action{}, fmt.Errorf("invalid input")
 	}
 	a := Action{Tool: tool, Input: input}
-	if _, err := command(a); err != nil {
+	command, err := command(a)
+	if err != nil {
 		return Action{}, err
+	}
+	target := ""
+	for _, key := range []string{"path", "file_path"} {
+		if value, exists := input[key]; exists {
+			if target != "" {
+				return Action{}, fmt.Errorf("ambiguous target")
+			}
+			path, ok := value.(string)
+			if !ok || strings.TrimSpace(path) == "" {
+				return Action{}, fmt.Errorf("invalid target")
+			}
+			target = path
+		}
 	}
 	var cwdValue any
 	var hasCWD bool
@@ -225,7 +245,9 @@ func ParseHook(r io.Reader) (Action, error) {
 			return Action{}, fmt.Errorf("invalid cwd")
 		}
 	}
+	a.Command = command
 	a.CWD = cwd
+	a.Target = target
 	return a, nil
 }
 
@@ -271,6 +293,9 @@ func (e *Engine) Evaluate(a Action) (Decision, error) {
 func command(a Action) (string, error) {
 	v, exists := a.Input["command"]
 	if !exists {
+		if a.Input == nil && a.Command != "" {
+			return a.Command, nil
+		}
 		if a.Tool == "exec" || a.Tool == "Bash" {
 			return "", fmt.Errorf("missing command")
 		}

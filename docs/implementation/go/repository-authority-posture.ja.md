@@ -19,10 +19,10 @@ root、単一 binary、厳格 JSON、tool policy / action digest を再利用す
 
 対象は次に限定する。
 
-- trusted expected repository と repository-security policy の束縛・検証
+- trusted expected repository name / immutable GitHub repository ID、task worktree、Git common directory、branch と repository-security policy の束縛・検証
 - 現在の local Git identity / worktree / branch / HEAD の観測
 - GitHub canonical identity / default branch / active state / effective rules の取得
-- generic action が repository mutation authority を必要とするかの保守的分類
+- generic action が repository mutation authority を必要とするかの保守的分類と、直接file mutation targetのworktree内検証
 - policy の `allow` / `ask` より先に適用する fresh authority evaluation
 - pass / fail / unknown と利用した状態の Evidence
 - repository-controlled selector、overlay、cacheによる弱化の除去
@@ -50,9 +50,12 @@ mutation authority が必要か
 
 tool-policy `deny` は repository取得前に確定できる。`allow` と `ask` のmutationは
 repository authorityを通り、通常approvalは `BLOCKED` を反転できない。`Read` / `Glob` /
-`Grep` と固定した完全一致commandだけをread-onlyとし、未知tool、commandless tool、追加引数、
-shell合成、`git branch -D`等のvariantはmutationとして扱う。この分類はS3のpublication
-分類ではない。
+`Grep` と固定した完全一致commandだけをread-onlyとする。command allowlistは固定した
+`exec` / `Bash` にだけ適用し、未知toolが `pwd` 等を自己申告しても迂回できない。未知tool、
+commandless tool、追加引数、shell合成、`git branch -D`等のvariantはmutationとして扱う。
+直接file mutationは `path` / `file_path` を正規化してtrusted worktree内に束縛する。shellや
+未知toolのmutationは実対象を証明できないため、本段階ではfail-closedに拒否する。この分類は
+S3のpublication分類ではない。
 
 ## 3. Trusted binding
 
@@ -67,6 +70,11 @@ shell合成、`git branch -D`等のvariantはmutationとして扱う。この分
 {
   "schema_version": 1,
   "expected_repository": "acme/widget",
+  "expected_repository_id": 123456789,
+  "expected_worktree_root": "/srv/agent-harness/worktrees/task-123",
+  "expected_git_dir": "/srv/agent-harness/control/widget/.git/worktrees/task-123",
+  "expected_git_common_dir": "/srv/agent-harness/control/widget/.git",
+  "expected_branch": "feature/task-123",
   "requirements": {
     "require_linked_worktree": true,
     "require_pull_request": true,
@@ -75,6 +83,10 @@ shell合成、`git branch -D`等のvariantはmutationとして扱う。この分
   }
 }
 ```
+
+`expected_repository_id`、task固有のworktree / Git directories / branchは必須であり、
+trusted control planeがworktree作成結果から生成して保護する。local repositoryが同じ
+`remote.origin.url`を自己申告するだけではidentityを成立させない。
 
 要件の省略値はすべて `true` とし、省略が弱化にならない。`false` を指定できるのはtrusted
 fileだけである。repository checkoutの `.agent-harness/security.json` は読まず、次のlegacy /
@@ -86,6 +98,8 @@ Python selectorが非空ならoperator misconfigurationとして起動を拒否�
 - `AGENT_HARNESS_EXPECTED_REPOSITORY`
 - `AGENT_HARNESS_MINIMUM_POSTURE_MODE`
 - `AGENT_HARNESS_STATE_DIR`
+- `SSL_CERT_FILE`
+- `SSL_CERT_DIR`
 
 したがってrepository側はenv、overlay、writable cacheからexpected identity、minimum
 requirements、評価結果を差し替えられない。これはtrusted root自体の所有権、read-only mount、
@@ -96,12 +110,16 @@ requirements、評価結果を差し替えられない。これはtrusted root�
 local observationはPATH探索せず `/usr/bin/git` を直接起動する。継承した `GIT_DIR`、
 `GIT_WORK_TREE`、global/system config、credential helper、fsmonitor、hookを権威入力にしない。
 `remote.origin.url` はlocal configからincludeを無効にして取得し、github.comの限定したHTTPS /
-SSH形式だけを `owner/repository` に正規化する。
+SSH形式だけを `owner/repository` に正規化する。local root、per-worktree Git directory、
+Git common directory、branchは
+trusted policyのtask固有値と完全一致させ、repository-controlledなorigin文字列だけでは
+identityを成立させない。
 
 GitHub stateはGo標準libraryから固定 `https://api.github.com` へ取得する。repositoryがAPI
 endpoint、proxy、redirectを選べない。`AGENT_HARNESS_GITHUB_TOKEN` はアクセス用credential
 だけであり、policy、identity、endpointを変更しない。token欠落・scope不足・rate limit・
-network/TLS failureはmutation authorityを与えない。tokenのtrusted injection、scope、rotation、
+network/TLS failureはmutation authorityを与えない。LinuxでTLS trust rootを変更し得る
+`SSL_CERT_FILE` / `SSL_CERT_DIR` は非空なら起動を拒否する。tokenのtrusted injection、scope、rotation、
 secret isolationは配備側の責務である。
 
 ## 4. Posture と mutation authority
@@ -110,19 +128,22 @@ secret isolationは配備側の責務である。
 
 1. absolute `cwd` とsymlink解決結果
 2. Git repository root と `cwd` の包含関係
-3. raw local `origin` とtrusted expected repositoryの一致
-4. current branch、HEAD object ID、linked worktree
-5. GitHub `full_name`、default branch、archived / disabled
-6. default branchへ現在適用されるGitHub Rules
+3. local root / per-worktree Git directory / Git common directory / branch とtrusted task bindingの一致
+4. direct file mutation targetのsymlinkを含む正規化とworktree包含
+5. raw local `origin` とtrusted expected repositoryの一致
+6. current branch、HEAD object ID、linked worktree
+7. GitHub immutable repository ID、`full_name`、default branch、archived / disabled
+8. current branchとdefault branchへ現在適用されるGitHub Rules
 
 本実装はproduction候補として単一の厳格な判定を採る。必要なcheckがすべてpassしたときだけ
 `READY` とし、failまたはunknownを1件でも含む場合は `BLOCKED` とする。Python S2の
 `warn` / `restricted` mode、TTL、context cacheは移植しない。これらが必要かはQ-04の
 運用・鮮度契約と合わせて決める。
 
-`require_linked_worktree` が有効ならcontrol checkoutを拒否する。detached HEAD、GitHubの
-default branch、archived / disabled repository、expected identity不一致、必須rule type欠落も
-拒否する。現在確認するrule typeは `pull_request`、`non_fast_forward`、
+`require_linked_worktree` が有効ならcontrol checkoutを拒否する。detached HEAD、trusted branch
+不一致、GitHubのdefault branch、current branchにeffective ruleが存在するprotected branch、
+archived / disabled repository、expected name / immutable ID不一致、必須rule type欠落も
+拒否する。default branchで確認するrule typeは `pull_request`、`non_fast_forward`、
 `required_status_checks` である。GitHubのserver-side authorizationが最終権威であり、この
 presence checkだけでrulesの完全性やcredentialの迂回不能性を保証したことにはならない。
 
@@ -137,8 +158,8 @@ mutationの判断には既存のtool policy / action SHA-256に加え、次を�
 
 - repository-security policy全byteのSHA-256
 - posture stateと各checkのpass / fail / unknown
-- canonical repository、repository root、branch、HEAD、default branch、linked worktree
-- GitHub metadata responseとeffective rules responseのSHA-256
+- canonical repositoryとimmutable ID、repository root、mutation target、branch、HEAD、default branch、linked worktree
+- GitHub metadata response、current branch rules、default branch rules responseのSHA-256
 - 取得時刻
 
 action digestには検証前の `cwd` も含める。response digestは取得byteを識別するが、GitHub
@@ -150,8 +171,8 @@ responseへの独立署名や永続audit storeではない。取得時刻・comm
 | 全体仕様 | Goでの具体化 | 決定的Evidence | 評価 |
 |---|---|---|---|
 | TR-01 | 固定trusted rootの `repository-security.json`。legacy selector、repository overlay、cacheを権威から除外 | `TestTrustedPaths`、`TestSingleBinary`、`TestLoadConfigRejectsAmbiguousOrInvalidPolicy` | 配備前提付き部分適合 |
-| RE-01 | local root/originとtrusted identityを照合し、GitHub canonical metadata/rulesをfresh取得 | `TestAssessReadyUsesFreshLocalAndGitHubEvidence`、identity/API異常tests | 対象状態で部分適合 |
-| RE-02 | linked worktree、non-detached feature branch、GitHub default branch拒否 | `TestAssessBlocksDefaultBranchAndControlCheckout` | task/worktree binding未確定のため部分適合 |
+| RE-01 | local root/per-worktree Git dir/common-dir/branch/targetとtrusted task bindingを照合し、GitHub immutable ID/canonical metadata/rulesをfresh取得 | `TestAssessReadyUsesFreshLocalAndGitHubEvidence`、binding/target/identity/API異常tests | direct file mutation範囲で部分適合 |
+| RE-02 | task固有worktree/Git dirs/branch、linked worktree、non-detached branch、default/protected branch拒否 | `TestAssessBindsAnActualLinkedWorktree`、`TestAssessBindsTrustedWorktreeGitDirectoriesAndBranch`、`TestAssessRejectsProtectedExpectedBranch` | trusted task config生成は配備前提 |
 | PO-01 | policy `deny`を維持し、mutationの `allow` / `ask` をauthority denyで上書き | `TestRuntimeAppliesRepositoryAuthorityInActualEvaluationPath` | 実行経路で確認 |
 | PO-02 | policy/actionにrepository policy、local target、GitHub response digest、取得時刻を追加 | `TestAssessReadyUsesFreshLocalAndGitHubEvidence`、runtime integration test | audit永続化を除き部分適合 |
 | BH-03 | decision JSONに判断と根拠を相関可能な形で返すが、監査記録の保存・完全性・配信を実装しない | decision Evidence tests | 未適合。Q-09として明示 |
@@ -181,10 +202,11 @@ identity消失は、Goではcache/overlayを採用せず、read-onlyを正に限
 
 - Q-01: binary、repository policy、`/usr/bin/git`、OS trust storeの所有権、署名、更新、rollback、失効。
 - Q-02/Q-10: repository policy schema、Evidence field、exit statusは実験契約。version negotiationと移行期間は未確定。
-- Q-04: trusted task identityとexpected worktree rootの束縛、worktree作成主体、local Git metadataの改変耐性、TOCTOU、API鮮度/再試行を未確定。
+- Q-04: task固有worktree root / per-worktree Git directory / Git common directory / branchを実験schemaへ束縛した。これらを生成・保護するcontrol plane、worktree作成主体、再配置、TOCTOU、API鮮度/再試行は未確定。
 - Q-04: GitHub Rules typeのpresenceだけでparameterの十分性を決めてよいか、classic branch protection / ruleset / enterprise hostをどう統一するかは未確定。
 - Q-09/Q-11: 現行仕様BH-03が要求する監査記録のschema、保存、完全性、秘匿化、保持、配信保証、閲覧権限、書込失敗時の停止を実装していない。Evidence JSONは監査記録の代替ではない。必須CI、共有language-independent vector形式、部分適合表示も未確定。
-- generic inputの `cwd` とrepository rootは検証するが、各tool固有のpath/remote targetが同じrepositoryに属することまでは証明しない。adapter capabilityとtarget normalizationが必要である。
+- direct `Write` / `Edit` は `path` / `file_path` の既存または最寄りの既存親までsymlinkを解決し、trusted worktree内だけを許可する。shell、未知tool、複数targetは実対象を証明できないため拒否する。対応範囲を広げるにはadapter capabilityとexecutor側のtarget bindingが必要である。
+- path containmentはmount point、hard link、検証後のsymlink置換を能力境界として防がない。配備時のmount構成、OS sandbox、実行時のopen/execute境界との結合が必要である。
 - fixed read-only tool名のvendor mappingと、callerが全mutation経路を仲介することはS6の配備適合で確認する。
 - GitHub tokenがないpublic repository以外の実運用、rate limit、network outage時の復旧は配備・運用契約が必要である。
 - S3 publication、S4 control-plane change、S5 completion、S6 vendor/deploymentを先回りして実装しない。
