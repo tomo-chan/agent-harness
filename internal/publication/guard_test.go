@@ -201,6 +201,34 @@ func TestPushRejectsEffectiveTargetMirrorAndUpstreamMismatch(t *testing.T) {
 	}
 }
 
+func TestPushRejectsImplicitFollowTags(t *testing.T) {
+	for _, value := range []string{"true", "false\ntrue"} {
+		git := readyGit()
+		git["config --no-includes --name-only --list"] += "\npush.followTags"
+		git["config --no-includes --bool --get-all push.followTags"] = value
+		decision, err := evaluate(t, "git push origin HEAD:refs/heads/"+testBranch, git, fakeGitHub{})
+		if err != nil || decision.Decision != "deny" || decision.Rule == nil || *decision.Rule != "publication-follow-tags" {
+			t.Errorf("value=%q decision=%+v err=%v", value, decision, err)
+		}
+	}
+
+	git := readyGit()
+	git["config --no-includes --name-only --list"] += "\npush.followTags"
+	git["config --no-includes --bool --get-all push.followTags"] = "false"
+	decision, err := evaluate(t, "git push origin HEAD:refs/heads/"+testBranch, git, fakeGitHub{})
+	if err != nil || decision.Decision != "allow" {
+		t.Fatalf("explicit false was rejected: decision=%+v err=%v", decision, err)
+	}
+
+	git = readyGit()
+	git["config --no-includes --name-only --list"] += "\npush.followTags"
+	git["config --no-includes --bool --get-all push.followTags"] = "error:invalid boolean"
+	decision, err = evaluate(t, "git push origin HEAD:refs/heads/"+testBranch, git, fakeGitHub{})
+	if err == nil || decision.Decision != "deny" || decision.Evidence.Publication.Checks[len(decision.Evidence.Publication.Checks)-1].Status != "unknown" {
+		t.Fatalf("invalid boolean did not fail closed: decision=%+v err=%v", decision, err)
+	}
+}
+
 func TestPublicationRejectsRepositoryControlledConfigIncludes(t *testing.T) {
 	for _, include := range []string{"include.path", "includeIf.gitdir:/work/task.path"} {
 		git := readyGit()
@@ -343,12 +371,21 @@ func TestPublicationDryDecisionInActualLinkedWorktree(t *testing.T) {
 	if err != nil || decision.Decision != "allow" {
 		t.Fatalf("linked-worktree dry push decision=%+v err=%v", decision, err)
 	}
+	runGit(t, gitPath, "-C", worktree, "config", "push.followTags", "true")
+	decision, err = Evaluate(
+		context.Background(), action, candidateDecision("allow"), Classify(action), report,
+		repository.SystemGit{Path: gitPath}, fakeGitHub{}, nil, time.Unix(1_001, 0),
+	)
+	if err != nil || decision.Decision != "deny" || decision.Rule == nil || *decision.Rule != "publication-follow-tags" {
+		t.Fatalf("linked-worktree followTags decision=%+v err=%v", decision, err)
+	}
+	runGit(t, gitPath, "-C", worktree, "config", "--unset", "push.followTags")
 
 	runGit(t, gitPath, "-C", worktree, "config", "branch."+testBranch+".gh-merge-base", "release")
 	prAction := policy.Action{Tool: "exec", Input: map[string]any{"command": "gh pr create --fill"}, CWD: worktree}
 	decision, err = Evaluate(
 		context.Background(), prAction, candidateDecision("allow"), Classify(prAction), report,
-		repository.SystemGit{Path: gitPath}, fakeGitHub{head: head, digest: "ref-digest"}, nil, time.Unix(1_001, 0),
+		repository.SystemGit{Path: gitPath}, fakeGitHub{head: head, digest: "ref-digest"}, nil, time.Unix(1_002, 0),
 	)
 	if err != nil || decision.Decision != "deny" || decision.Rule == nil || *decision.Rule != "publication-pr-base" {
 		t.Fatalf("linked-worktree gh-merge-base decision=%+v err=%v", decision, err)

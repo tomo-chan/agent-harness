@@ -83,6 +83,7 @@ git push --set-upstream origin HEAD:refs/heads/<current-branch>
 - refspecはlocal `HEAD`から同名のcurrent branchへの完全形だけである。
 - origin fetch URLと、唯一のeffective origin push URLがS2のcanonical repositoryと一致する。
 - `remote.origin.mirror`がtrueではない。重複・不正なmirror値も許可しない。
+- `push.followTags`がtrueではない。annotated tagの暗黙同時公開を許可せず、重複・不正値も拒否する。
 - 通常形はupstreamが `origin/<current-branch>` と一致する。
 - `--set-upstream`形はbranchのremote / merge configがまだ存在しない初回形だけである。
 - force / force-with-lease / force-if-includes、mirror、bulk、tag一括、delete、`+` refspecを
@@ -216,6 +217,7 @@ Goの回帰testへ追加した。
 - `go vet ./...` — 成功
 - `go build ./...` — 成功
 - canonical push、first-push lifecycle、force/bulk、invalid/default/tag refspec、multiple/mismatched push URL、mirror、upstream mismatch tests
+- `push.followTags`によるannotated tag暗黙公開のunit / 実Git linked worktree regression
 - compound/quoted/ambiguous publication、PR override全形式、`gh-merge-base`、environment/config include tests
 - local HEAD / branch変化、GitHub branch head mismatch / unavailable tests
 - 実Git linked worktreeを使うRepository Authority handoff + Publication Guard dry decision integration

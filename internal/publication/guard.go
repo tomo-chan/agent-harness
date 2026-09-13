@@ -364,6 +364,23 @@ func (a *assessment) validatePush(ctx context.Context, action policy.Action, rep
 	}
 	a.add("mirror", "pass", "origin is not a mirror remote")
 
+	if configHas(names, "push.followTags") {
+		followTagValues, err := git.Run(ctx, action.CWD, "config", "--no-includes", "--bool", "--get-all", "push.followTags")
+		if err != nil {
+			return a.unknown("follow_tags", "push.followTags cannot be evaluated", err)
+		}
+		values := nonemptyLines(followTagValues)
+		if len(values) != 1 {
+			a.add("follow_tags", "fail", "push.followTags has ambiguous values")
+			return a.decide("deny", "implicit tag publication is ambiguous", "publication-follow-tags"), nil
+		}
+		if values[0] != "false" {
+			a.add("follow_tags", "fail", "push.followTags enables implicit annotated-tag publication")
+			return a.decide("deny", "implicit tag publication is prohibited from the autonomous path", "publication-follow-tags"), nil
+		}
+	}
+	a.add("follow_tags", "pass", "implicit annotated-tag publication is disabled")
+
 	remoteKey := "branch." + report.Branch + ".remote"
 	mergeKey := "branch." + report.Branch + ".merge"
 	if firstPublication {
