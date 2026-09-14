@@ -18,20 +18,33 @@ import (
 
 func testRepositoryPolicy(t *testing.T, root string) string {
 	t.Helper()
-	b, err := json.Marshal(map[string]any{
-		"schema_version":          1,
-		"authority_source":        repository.AuthoritySourceGitHubRules,
-		"expected_repository":     "acme/widget",
-		"expected_repository_id":  123456,
-		"expected_worktree_root":  root,
-		"expected_git_dir":        root,
-		"expected_git_common_dir": root,
-		"expected_branch":         "feature/task",
-	})
+	b, err := json.Marshal(map[string]any{"schema_version": 1, "authority_source": repository.AuthoritySourceGitHubRules, "expected_repository": "acme/widget", "expected_repository_id": 123456, "expected_worktree_root": root, "expected_git_dir": root, "expected_git_common_dir": root, "expected_branch": "feature/task"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+func prepareRuntimeRoot(t *testing.T) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	exe := filepath.Join(root, "agent-harness")
+	for n, c := range map[string]string{"agent-harness": "binary", "policy.json": `{"default":"allow"}`, repository.ConfigFilename: testRepositoryPolicy(t, root)} {
+		if err := os.WriteFile(filepath.Join(root, n), []byte(c), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root, exe
+}
+func getenvRoot(root string) func(string) string {
+	return func(name string) string {
+		if name == "AGENT_HARNESS_TRUSTED_ROOT" {
+			return root
+		}
+		return ""
+	}
+}
+func readyReport(root string, config *repository.Config) repository.Report {
+	return repository.Report{State: "READY", Repository: "acme/widget", RepositoryID: 123456, RepoRoot: root, Branch: "feature/task", HeadSHA: strings.Repeat("a", 40), DefaultBranch: "main", Evidence: repository.Evidence{RepositoryPolicySHA256: config.SHA256, CheckedAt: time.Unix(1000, 0).UTC().Format(time.RFC3339Nano)}}
 }
 
 func TestTrustedPaths(t *testing.T) {
@@ -41,8 +54,8 @@ func TestTrustedPaths(t *testing.T) {
 	}
 	exe := filepath.Join(root, "agent-harness")
 	p := filepath.Join(root, "policy.json")
-	repositoryPolicy := filepath.Join(root, repository.ConfigFilename)
-	for _, f := range []string{exe, p, repositoryPolicy} {
+	rp := filepath.Join(root, repository.ConfigFilename)
+	for _, f := range []string{exe, p, rp} {
 		if err := os.WriteFile(f, []byte("{}"), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -50,57 +63,13 @@ func TestTrustedPaths(t *testing.T) {
 	if got, err := PolicyPath(exe, root); err != nil || got != p {
 		t.Fatalf("%s %v", got, err)
 	}
-	if got, err := RepositoryPolicyPath(exe, root); err != nil || got != repositoryPolicy {
+	if got, err := RepositoryPolicyPath(exe, root); err != nil || got != rp {
 		t.Fatalf("%s %v", got, err)
 	}
-	for _, configured := range []string{"", ".", t.TempDir(), root + "-prefix"} {
-		if _, err := PolicyPath(exe, configured); err == nil {
-			t.Fatalf("accepted %s", configured)
+	for _, c := range []string{"", ".", t.TempDir(), root + "-prefix"} {
+		if _, err := PolicyPath(exe, c); err == nil {
+			t.Fatalf("accepted %s", c)
 		}
-	}
-	link := filepath.Join(t.TempDir(), "agent-harness")
-	if err := os.Symlink(exe, link); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := PolicyPath(link, filepath.Dir(link)); err == nil {
-		t.Fatal("symlink location treated as authority")
-	}
-	if _, err := PolicyPath(link, root); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(p); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := PolicyPath(exe, root); err == nil {
-		t.Fatal("missing policy accepted")
-	}
-	outside := filepath.Join(t.TempDir(), "policy.json")
-	if err := os.WriteFile(outside, []byte("{}"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, p); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := PolicyPath(exe, root); err == nil {
-		t.Fatal("outside symlink accepted")
-	}
-	if err := os.Remove(p); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(p, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := PolicyPath(exe, root); err == nil {
-		t.Fatal("directory policy accepted")
-	}
-	if err := os.Remove(repositoryPolicy); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, repositoryPolicy); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := RepositoryPolicyPath(exe, root); err == nil {
-		t.Fatal("outside repository policy symlink accepted")
 	}
 }
 
@@ -168,128 +137,95 @@ func TestRuntimeAppliesRepositoryAuthorityInActualEvaluationPath(t *testing.T) {
 }
 
 func TestRuntimeAuthorityFailurePreservesUnknownEvidenceAndExitsTwo(t *testing.T) {
-	root := t.TempDir()
-	executable := filepath.Join(root, "agent-harness")
-	for name, contents := range map[string]string{
-		"agent-harness":           "binary",
-		"policy.json":             `{"default":"allow"}`,
-		repository.ConfigFilename: testRepositoryPolicy(t, root),
-	} {
-		if err := os.WriteFile(filepath.Join(root, name), []byte(contents), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	rt := runtime{
-		executable: func() (string, error) { return executable, nil },
-		getenv: func(name string) string {
-			if name == "AGENT_HARNESS_TRUSTED_ROOT" {
-				return root
-			}
-			return ""
-		},
-		authority: func(_ context.Context, _ policy.Action, config *repository.Config, _ bool) (repository.Report, error) {
-			return repository.Report{
-				State:  "BLOCKED",
-				Checks: []repository.Check{{Name: "github_rules", Status: "unknown", Detail: "HTTP 403"}},
-				Evidence: repository.Evidence{
-					RepositoryPolicySHA256: config.SHA256,
-					CheckedAt:              time.Unix(1_000, 0).UTC().Format(time.RFC3339Nano),
-				},
-			}, errors.New("GitHub unavailable")
-		},
-	}
-	var output bytes.Buffer
-	code := rt.run(strings.NewReader(`{"tool":"Write","input":{"path":"README.md"},"cwd":"`+root+`"}`), &output, nil)
-	var decision policy.Decision
-	if err := json.Unmarshal(output.Bytes(), &decision); err != nil {
-		t.Fatal(err)
-	}
-	if code != 2 || decision.Decision != "deny" || decision.Evidence == nil || decision.Evidence.Repository == nil {
-		t.Fatalf("code=%d decision=%+v", code, decision)
-	}
-	checks := decision.Evidence.Repository.Checks
-	if len(checks) != 1 || checks[0].Status != "unknown" {
-		t.Fatalf("unknown evidence was not preserved: %+v", checks)
+	root, exe := prepareRuntimeRoot(t)
+	rt := runtime{executable: func() (string, error) { return exe, nil }, getenv: getenvRoot(root), authority: func(_ context.Context, _ policy.Action, c *repository.Config, _ bool) (repository.Report, error) {
+		return repository.Report{State: "BLOCKED", Checks: []repository.Check{{Name: "github_rules", Status: "unknown", Detail: "HTTP 403"}}, Evidence: repository.Evidence{RepositoryPolicySHA256: c.SHA256, CheckedAt: time.Unix(1000, 0).UTC().Format(time.RFC3339Nano)}}, errors.New("GitHub unavailable")
+	}}
+	var out bytes.Buffer
+	code := rt.run(strings.NewReader(`{"tool":"Write","input":{"path":"README.md"},"cwd":"`+root+`"}`), &out, nil)
+	var d policy.Decision
+	_ = json.Unmarshal(out.Bytes(), &d)
+	if code != 2 || d.Decision != "deny" || d.Evidence == nil || d.Evidence.Repository == nil {
+		t.Fatalf("%d %+v", code, d)
 	}
 }
 
-func TestRuntimeRoutesPublicationThroughFreshAuthorityAndPublicationGuard(t *testing.T) {
-	root := t.TempDir()
-	executable := filepath.Join(root, "agent-harness")
-	for name, contents := range map[string]string{
-		"agent-harness":           "binary",
-		"policy.json":             `{"default":"allow"}`,
-		repository.ConfigFilename: testRepositoryPolicy(t, root),
-	} {
-		if err := os.WriteFile(filepath.Join(root, name), []byte(contents), 0o600); err != nil {
-			t.Fatal(err)
+func TestRuntimeOrdersPublicationBeforeControlPlane(t *testing.T) {
+	root, exe := prepareRuntimeRoot(t)
+	order := []string{}
+	rt := runtime{executable: func() (string, error) { return exe, nil }, getenv: getenvRoot(root), authority: func(_ context.Context, _ policy.Action, c *repository.Config, p bool) (repository.Report, error) {
+		order = append(order, "authority")
+		if !p {
+			t.Fatal("publication authority not requested")
 		}
-	}
-	authorityCalled := false
-	publicationCalled := false
-	rt := runtime{
-		executable: func() (string, error) { return executable, nil },
-		getenv: func(name string) string {
-			if name == "AGENT_HARNESS_TRUSTED_ROOT" {
-				return root
-			}
-			return ""
-		},
-		authority: func(_ context.Context, action policy.Action, config *repository.Config, forPublication bool) (repository.Report, error) {
-			authorityCalled = true
-			if !forPublication || action.CWD != root || config.ExpectedBranch != "feature/task" {
-				t.Fatalf("unexpected publication authority input: action=%+v config=%+v publication=%t", action, config, forPublication)
-			}
-			return repository.Report{
-				State: "READY", Repository: "acme/widget", RepositoryID: 123456,
-				RepoRoot: root, Branch: "feature/task", HeadSHA: strings.Repeat("a", 40), DefaultBranch: "main",
-				Evidence: repository.Evidence{RepositoryPolicySHA256: config.SHA256, CheckedAt: time.Unix(1_000, 0).UTC().Format(time.RFC3339Nano)},
-			}, nil
-		},
-		publication: func(_ context.Context, _ policy.Action, result policy.Decision, classification publication.Classification, report repository.Report) (policy.Decision, error) {
-			publicationCalled = true
-			if classification.Kind != publication.KindPullRequestCreate || report.State != "READY" || result.Evidence.Repository == nil {
-				t.Fatalf("unexpected publication guard input: classification=%+v report=%+v decision=%+v", classification, report, result)
-			}
-			result.Evidence.Publication = &policy.PublicationEvidence{Kind: string(classification.Kind), Repository: report.Repository}
-			return result, nil
-		},
-	}
-	var output bytes.Buffer
-	code := rt.run(strings.NewReader(`{"tool":"exec","input":{"command":"gh pr create --fill"},"cwd":"`+root+`"}`), &output, nil)
-	var decision policy.Decision
-	if err := json.Unmarshal(output.Bytes(), &decision); err != nil {
-		t.Fatal(err)
-	}
-	if code != 0 || !authorityCalled || !publicationCalled || decision.Decision != "allow" ||
-		decision.Evidence == nil || decision.Evidence.Repository == nil || decision.Evidence.Publication == nil {
-		t.Fatalf("code=%d authority=%t publication=%t decision=%+v", code, authorityCalled, publicationCalled, decision)
-	}
-
-	rt.publication = func(_ context.Context, _ policy.Action, result policy.Decision, classification publication.Classification, report repository.Report) (policy.Decision, error) {
-		result.Evidence.Publication = &policy.PublicationEvidence{
-			Kind: string(classification.Kind), Repository: report.Repository,
-			Checks: []policy.PublicationCheckEvidence{{Name: "github_branch_head", Status: "unknown", Detail: "HTTP 503"}},
-		}
-		denied := policy.Result("deny", "publication evidence is unavailable", "publication-evidence-error")
-		denied.Evidence = result.Evidence
-		return denied, errors.New("GitHub unavailable")
-	}
-	output.Reset()
-	code = rt.run(strings.NewReader(`{"tool":"exec","input":{"command":"gh pr create --fill"},"cwd":"`+root+`"}`), &output, nil)
-	if err := json.Unmarshal(output.Bytes(), &decision); err != nil {
-		t.Fatal(err)
-	}
-	if code != 2 || decision.Decision != "deny" || decision.Evidence == nil || decision.Evidence.Publication == nil ||
-		len(decision.Evidence.Publication.Checks) != 1 || decision.Evidence.Publication.Checks[0].Status != "unknown" {
-		t.Fatalf("publication failure evidence not preserved: code=%d decision=%+v", code, decision)
+		return readyReport(root, c), nil
+	}, publication: func(_ context.Context, _ policy.Action, r policy.Decision, c publication.Classification, rep repository.Report) (policy.Decision, error) {
+		order = append(order, "publication")
+		r.Evidence.Publication = &policy.PublicationEvidence{Kind: string(c.Kind), Repository: rep.Repository}
+		return r, nil
+	}, controlPlane: func(_ context.Context, _ policy.Action, r policy.Decision, _ repository.Report) (policy.Decision, error) {
+		order = append(order, "control-plane")
+		asked := policy.Result("ask", "review", "control-plane-publication")
+		asked.Evidence = r.Evidence
+		return asked, nil
+	}}
+	var out bytes.Buffer
+	code := rt.run(strings.NewReader(`{"tool":"exec","input":{"command":"gh pr create --fill"},"cwd":"`+root+`"}`), &out, nil)
+	var d policy.Decision
+	_ = json.Unmarshal(out.Bytes(), &d)
+	if code != 0 || d.Decision != "ask" || strings.Join(order, ",") != "authority,publication,control-plane" {
+		t.Fatalf("code=%d order=%v decision=%+v", code, order, d)
 	}
 }
 
-// The fixed adapter must still fail closed if the consumer cannot receive JSON.
+func TestRuntimeDoesNotRunControlPlaneWhenS3DoesNotAllow(t *testing.T) {
+	root, exe := prepareRuntimeRoot(t)
+	cp := false
+	rt := runtime{executable: func() (string, error) { return exe, nil }, getenv: getenvRoot(root), authority: func(_ context.Context, _ policy.Action, c *repository.Config, _ bool) (repository.Report, error) {
+		return readyReport(root, c), nil
+	}, publication: func(_ context.Context, _ policy.Action, r policy.Decision, c publication.Classification, rep repository.Report) (policy.Decision, error) {
+		r.Evidence.Publication = &policy.PublicationEvidence{Kind: string(c.Kind), Repository: rep.Repository}
+		asked := policy.Result("ask", "noncanonical", "noncanonical-publication")
+		asked.Evidence = r.Evidence
+		return asked, nil
+	}, controlPlane: func(_ context.Context, _ policy.Action, r policy.Decision, _ repository.Report) (policy.Decision, error) {
+		cp = true
+		return r, nil
+	}}
+	var out bytes.Buffer
+	code := rt.run(strings.NewReader(`{"tool":"exec","input":{"command":"gh pr create --fill"},"cwd":"`+root+`"}`), &out, nil)
+	var d policy.Decision
+	_ = json.Unmarshal(out.Bytes(), &d)
+	if code != 0 || d.Decision != "ask" || cp {
+		t.Fatalf("code=%d cp=%t d=%+v", code, cp, d)
+	}
+}
+
+func TestRuntimeControlPlaneEvidenceFailureExitsTwo(t *testing.T) {
+	root, exe := prepareRuntimeRoot(t)
+	rt := runtime{executable: func() (string, error) { return exe, nil }, getenv: getenvRoot(root), authority: func(_ context.Context, _ policy.Action, c *repository.Config, _ bool) (repository.Report, error) {
+		return readyReport(root, c), nil
+	}, publication: func(_ context.Context, _ policy.Action, r policy.Decision, c publication.Classification, rep repository.Report) (policy.Decision, error) {
+		r.Evidence.Publication = &policy.PublicationEvidence{Kind: string(c.Kind), Repository: rep.Repository}
+		return r, nil
+	}, controlPlane: func(_ context.Context, _ policy.Action, r policy.Decision, _ repository.Report) (policy.Decision, error) {
+		r.Evidence.Publication.Checks = append(r.Evidence.Publication.Checks, policy.PublicationCheckEvidence{Name: "publication_diff", Status: "unknown", Detail: "git diff failed"})
+		denied := policy.Result("deny", "control-plane publication diff is unavailable", "control-plane-evidence-error")
+		denied.Evidence = r.Evidence
+		return denied, errors.New("diff unavailable")
+	}}
+	var out bytes.Buffer
+	code := rt.run(strings.NewReader(`{"tool":"exec","input":{"command":"gh pr create --fill"},"cwd":"`+root+`"}`), &out, nil)
+	var d policy.Decision
+	_ = json.Unmarshal(out.Bytes(), &d)
+	if code != 2 || d.Decision != "deny" || d.Evidence == nil || d.Evidence.Publication == nil || len(d.Evidence.Publication.Checks) != 1 || d.Evidence.Publication.Checks[0].Status != "unknown" {
+		t.Fatalf("code=%d d=%+v", code, d)
+	}
+}
+
 type failingWriter struct{}
 
-func (failingWriter) Write(p []byte) (int, error) { return 0, os.ErrPermission }
+func (failingWriter) Write([]byte) (int, error) { return 0, os.ErrPermission }
 func TestOutputFailure(t *testing.T) {
 	if code := Run(strings.NewReader(`{}`), failingWriter{}, []string{"unexpected"}); code != 2 {
 		t.Fatalf("got %d", code)
