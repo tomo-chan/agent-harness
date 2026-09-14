@@ -81,18 +81,30 @@ unknown vendor decisionはallowに変換しない。
   - lifecycle dispatch
   - trusted evaluator dependency injection
   - vendor response rendering
+- `internal/trustedexec/api.go`
+  - S1〜S4共通evaluatorへのproduction接続
+  - Stop時のfresh Repository Authority + S5実行
+  - trusted completion gate binding
+- `internal/repository/completion.go`
+  - mutation targetを要求しないStop-time authority handoff
+- `main.go`
+  - `agent-harness vendor <claude|codex|devin>`
+  - `agent-harness version`
 - tests
   - ask mapping
   - Stop review loop
   - follow-up completion
   - malformed/unknown input
   - evaluator failure
+  - trusted completion gate path
 
 ## Production wiring boundary
 
-`internal/vendor` は vendor-specific schema translationを担い、trusted evaluator自体の選択権を持たない。Productionでは固定binaryがtrusted dependenciesを注入する必要がある。
+`internal/vendor` は vendor-specific schema translationを担い、trusted evaluator自体の選択権を持たない。Productionでは固定binaryが `internal/trustedexec` のevaluatorを注入する。
 
-この分離により、repository側の設定やvendor payloadから任意adapter / evaluatorを差し替える設計を避ける。
+`agent-harness vendor <name>` はこの固定wiringを使用し、repository側の設定やvendor payloadから任意adapter / evaluatorを差し替えない。
+
+Completion gateもrepository内scriptを直接実行せず、trusted binaryと同じtrusted rootの固定名 `completion-gate` executableへ束縛する。これにより、repository mutationがcompletion判定そのものを書き換える経路を持たせない。
 
 ## Deployment trust chain
 
@@ -130,7 +142,32 @@ vendor hook invocation
 - stale binary検出
 - installed binaryとtrusted configのbinding
 
-これらはGo codeだけでは保証できず、CI/CD・artifact registry・OS/package deployment・workload identity等の外部強制境界と組み合わせる。
+### Binary self-identification
+
+`internal/buildinfo` と `agent-harness version` は、Go toolchainが埋め込んだ次の情報をJSONで出力する。
+
+- Go version
+- GOOS
+- GOARCH
+- module path
+- VCS revision
+- VCS modified flag
+- VCS time
+
+これによりinstalled binaryをsource commit / platformへ照合するための観測点を提供する。ただしbinary自身のself-reportは独立した署名・provenance証明ではない。artifact digest / signature / attestationとの照合が別途必要である。
+
+### CI assurance
+
+GitHub Actions `Agent Harness Go` はLinux/macOS双方で次を実行する。
+
+- `go test ./...`
+- `go test -race ./...`
+- `go vet ./...`
+- `go build ./...`
+
+これらはsource-level / runtime test assuranceであり、artifact distributionの完全性を保証しない。
+
+GitHub artifact attestationを採用する場合、private repositoryでの利用可否はGitHub planとorganization設定に依存するため、利用可能性を確認してからproduction requirementへ昇格する。attestationが利用できない場合でも、SHA-256、署名、配布経路、installed artifact verificationを別の決定的mechanismで確立する必要がある。
 
 ## Credential containment
 
@@ -153,9 +190,10 @@ production deploymentでは、可能な範囲で次を外部強制する。
 - hookを経由しない任意子プロセスの完全仲介
 - credential compromise後の完全封じ込め
 - build system / registry / OS updater自体の完全性
+- artifact signing / attestation service自体の完全性
 
 ## 収束判定
 
 Vendor mapping coreについて、S1〜S5結果を弱化しないこと、Stop loopを維持すること、unknown/errorをfail-openしないことをunit testへ固定した状態を初回収束点とする。
 
-Production deployment trust-chainは外部責任として明示し、artifact provenance / signing / rollout / revocationを実配備時の必須保証として残す。
+Production deployment trust-chainについては、binary self-identificationとCI検証をGo側の観測可能な具体化として追加した。artifact provenance / signing / rollout / rollback / revocation / installed artifact verificationは外部強制境界との接続が必要であり、実配備時の追加適合条件として残す。
