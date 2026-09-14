@@ -5,7 +5,6 @@ package completion
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/tomo-chan/agent-harness/internal/repository"
@@ -50,8 +49,6 @@ type GitHub interface {
 	BranchHead(context.Context, string, string) (string, string, error)
 }
 
-// Gate executes repository-specific deterministic delivery checks when the
-// no-delivery-delta shortcut cannot be proven.
 type Gate interface {
 	Check(context.Context, string) (string, error)
 }
@@ -64,8 +61,6 @@ func blocked(e Evidence, reason string) Result {
 	return Result{Outcome: OutcomeBlocked, Reason: reason, Evidence: e}
 }
 
-// Evaluate consumes a fresh Repository Authority report produced at Stop time.
-// It does not accept SessionStart snapshots or local remote-tracking refs as authority.
 func Evaluate(ctx context.Context, req Request, report repository.Report, git repository.Git, github GitHub, gate Gate) Result {
 	e := Evidence{Repository: report.Repository, Branch: report.Branch, LocalHeadSHA: report.HeadSHA, DefaultBranch: report.DefaultBranch}
 	if req.CWD == "" || report.State != "READY" || report.Repository == "" || report.Branch == "" || report.HeadSHA == "" || report.DefaultBranch == "" {
@@ -174,5 +169,3 @@ func (g StaticGate) Check(context.Context, string) (string, error) {
 	}
 	return g.Detail, nil
 }
-
-var _ = fmt.Sprintf
