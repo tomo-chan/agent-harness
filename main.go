@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/tomo-chan/agent-harness/internal/buildinfo"
 	"github.com/tomo-chan/agent-harness/internal/completion"
 	"github.com/tomo-chan/agent-harness/internal/policy"
 	"github.com/tomo-chan/agent-harness/internal/trustedexec"
@@ -37,6 +38,10 @@ func runVendor(name string) int {
 
 func main() {
 	args:=os.Args[1:]
+	if len(args)==1 && args[0]=="version" {
+		if err:=json.NewEncoder(os.Stdout).Encode(buildinfo.Current()); err!=nil { os.Exit(2) }
+		return
+	}
 	if len(args)==2 && args[0]=="vendor" { os.Exit(runVendor(args[1])) }
 	os.Exit(trustedexec.Run(os.Stdin,os.Stdout,args))
 }
