@@ -18,11 +18,12 @@ var protectedPrefixes = []string{
 	".github/workflows/", "reference/claude/", "reference/codex/",
 	"reference/harness/", "reference/hooks/", "reference/posture/",
 	"reference/policies/", "reference/launcher/", "reference/scripts/",
-	"reference/kubernetes/",
+	"reference/kubernetes/", "internal/",
 }
 
 var protectedFiles = map[string]struct{}{
 	"AGENTS.md": {}, ".github/pull_request_template.md": {},
+	"main.go": {}, "go.mod": {}, "go.sum": {},
 }
 
 // GitHub provides the authoritative default-branch head. The implementation
@@ -86,7 +87,9 @@ func Evaluate(ctx context.Context, action policy.Action, result policy.Decision,
 	baseSHA, digest, err := github.BranchHead(ctx, report.Repository, report.DefaultBranch)
 	if err != nil || baseSHA == "" {
 		_ = addCheck(&result, "default_branch_head", "unknown", "authoritative GitHub default-branch head is unavailable")
-		if err == nil { err = fmt.Errorf("empty default-branch head") }
+		if err == nil {
+			err = fmt.Errorf("empty default-branch head")
+		}
 		return withDecision(result, "deny", "control-plane publication evidence is unavailable", "control-plane-evidence-error"), err
 	}
 	if err := addCheck(&result, "default_branch_head", "pass", baseSHA+" sha256="+digest); err != nil {
@@ -99,14 +102,16 @@ func Evaluate(ctx context.Context, action policy.Action, result policy.Decision,
 	}
 	_ = addCheck(&result, "base_commit", "pass", baseSHA)
 
-	changed, err := git.Run(ctx, action.CWD, "diff", "--name-only", baseSHA+"..."+report.HeadSHA)
+	// Disable rename detection so both the deleted source and added destination
+	// are returned. NUL termination preserves non-ASCII, newline, and other path
+	// bytes without core.quotePath display escaping.
+	changed, err := git.Run(ctx, action.CWD, "diff", "--no-renames", "--name-only", "-z", baseSHA+"..."+report.HeadSHA)
 	if err != nil {
 		_ = addCheck(&result, "publication_diff", "unknown", "cannot establish diff against authoritative GitHub default branch")
 		return withDecision(result, "deny", "control-plane publication diff is unavailable", "control-plane-evidence-error"), err
 	}
 	var protected []string
-	for _, path := range strings.Split(changed, "\n") {
-		path = strings.TrimSpace(path)
+	for _, path := range strings.Split(changed, "\x00") {
 		if path != "" && IsProtectedPath(path) {
 			protected = append(protected, path)
 		}
