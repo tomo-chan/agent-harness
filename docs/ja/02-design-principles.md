@@ -59,7 +59,7 @@ Agent が `main` に push しないよう依頼するだけでは不十分です
 }
 ```
 
-中央 Policy Engine は vendor-neutral decision を返し、Claude Code / Codex / Devin CLI の Adapter が native schema に変換します。リファレンス実装は [`policy_engine.py`](../../reference/hooks/policy_engine.py) と [`pre_tool_use_adapter.py`](../../reference/hooks/pre_tool_use_adapter.py) です。
+中央 Policy Engine は vendor-neutral decision を返し、Claude Code / Codex / Devin CLI の Adapter が native schema に変換します。現行の Go 実装は [`internal/policy/policy.go`](../../internal/policy/policy.go)、Vendor Mapping は [`internal/vendor/adapter.go`](../../internal/vendor/adapter.go) です。
 
 ## 10. Policy Decision を観測可能にする
 

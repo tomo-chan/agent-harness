@@ -53,7 +53,7 @@ flowchart LR
     A2 --> R[Vendor response]
 ```
 
-リファレンス実装は [`policy_engine.py`](../../reference/hooks/policy_engine.py) と [`pre_tool_use_adapter.py`](../../reference/hooks/pre_tool_use_adapter.py) を参照してください。
+現行の Go 実装は [`internal/policy/policy.go`](../../internal/policy/policy.go)、共通 Vendor Mapping は [`internal/vendor/adapter.go`](../../internal/vendor/adapter.go) を参照してください。
 
 すべての Vendor Feature を完全に抽象化する必要はありません。組織側が所有すべき Security / Orchestration Semantics だけを正規化し、各製品固有の有用な機能は Adapter の背後に残します。
 

@@ -54,8 +54,8 @@ Isolation と IAM Control が十分に検証されてから、staging / producti
 ## 推奨実装順序
 
 1. Normalized Action / Policy Schema を定義する
-2. Central [`policy_engine.py`](../../reference/hooks/policy_engine.py) と unit test を実装する
-3. Vendor Hook Adapter を追加する。最小例は [`pre_tool_use_adapter.py`](../../reference/hooks/pre_tool_use_adapter.py)
+2. Central Policy Engine と test を実装する。現行例は [`internal/policy/policy.go`](../../internal/policy/policy.go) と [`internal/policy/policy_test.go`](../../internal/policy/policy_test.go)
+3. Vendor Hook Adapter を追加する。Go 実装の Vendor Mapping は [`internal/vendor/adapter.go`](../../internal/vendor/adapter.go)、test は [`internal/vendor/adapter_test.go`](../../internal/vendor/adapter_test.go)
 4. Static Permissions / Rules を設定する
 5. 利用可能なら fail-closed OS Sandbox を有効化する
 6. [`agent-pod.yaml`](../../reference/kubernetes/agent-pod.yaml) を起点に Container / Pod を harden する
