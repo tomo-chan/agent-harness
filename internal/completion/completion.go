@@ -78,6 +78,17 @@ func Evaluate(ctx context.Context, req Request, report repository.Report, git re
 		return blocked(e, "deterministic completion evidence is unavailable")
 	}
 
+	root, err := git.Run(ctx, req.CWD, "rev-parse", "--show-toplevel")
+	if err != nil || root == "" {
+		add(&e, "repository_root", "unknown", "repository root is unavailable")
+		return blocked(e, "deterministic completion evidence is unavailable")
+	}
+	if root != report.RepoRoot {
+		add(&e, "repository_root", "fail", "requested working directory does not belong to the authority-bound worktree")
+		return blocked(e, "completion worktree does not match repository authority")
+	}
+	add(&e, "repository_root", "pass", root)
+
 	branch, err := git.Run(ctx, req.CWD, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil || branch == "" || branch == "HEAD" {
 		add(&e, "current_branch", "unknown", "current branch is unavailable")
@@ -126,21 +137,21 @@ func Evaluate(ctx context.Context, req Request, report repository.Report, git re
 
 	if noDelta {
 		e.NoDeliveryDelta = true
-		add(&e, "deterministic_gate", "pass", "no delivery delta; clean READY default branch matches GitHub head")
-	} else {
-		detail, gateErr := gate.Check(ctx, req.CWD)
-		if gateErr != nil {
-			if strings.TrimSpace(detail) == "" { detail = gateErr.Error() }
-			add(&e, "deterministic_gate", "fail", detail)
-			return blocked(e, "deterministic completion gate failed")
-		}
-		add(&e, "deterministic_gate", "pass", detail)
 	}
+	detail, gateErr := gate.Check(ctx, req.CWD)
+	if gateErr != nil {
+		if strings.TrimSpace(detail) == "" {
+			detail = gateErr.Error()
+		}
+		add(&e, "deterministic_gate", "fail", detail)
+		return blocked(e, "deterministic completion gate failed")
+	}
+	add(&e, "deterministic_gate", "pass", detail)
 
 	if !req.FollowUp {
 		return Result{
-			Outcome: OutcomeReviewRequired,
-			Reason: "deterministic completion assurance passed; evaluate task requirements, execution results, unresolved concerns, and new findings before completing",
+			Outcome:  OutcomeReviewRequired,
+			Reason:   "deterministic completion assurance passed; evaluate task requirements, execution results, unresolved concerns, and new findings before completing",
 			Evidence: e,
 		}
 	}
@@ -149,10 +160,18 @@ func Evaluate(ctx context.Context, req Request, report repository.Report, git re
 
 // StaticGate is useful for adapters/tests that already executed a deterministic
 // gate and need to supply its result without changing S5 semantics.
-type StaticGate struct { Detail string; Err error }
+type StaticGate struct {
+	Detail string
+	Err    error
+}
+
 func (g StaticGate) Check(context.Context, string) (string, error) {
-	if g.Err != nil { return g.Detail, g.Err }
-	if strings.TrimSpace(g.Detail) == "" { return "deterministic gate passed", nil }
+	if g.Err != nil {
+		return g.Detail, g.Err
+	}
+	if strings.TrimSpace(g.Detail) == "" {
+		return "deterministic gate passed", nil
+	}
 	return g.Detail, nil
 }
 

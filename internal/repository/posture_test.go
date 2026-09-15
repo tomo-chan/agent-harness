@@ -153,6 +153,25 @@ func TestAssessPublicationReusesRepositoryAuthorityWithoutDirectFileTarget(t *te
 	}
 }
 
+func TestAssessCompletionAllowsReadOnlyDefaultBranchObservation(t *testing.T) {
+	root, config, git, github := readyInputs(t)
+	config.ExpectedBranch = "main"
+	git["rev-parse --abbrev-ref HEAD"] = "main"
+	report, err := AssessCompletion(context.Background(), policy.Action{Tool: "Stop", CWD: root}, config, git, github, time.Unix(1_000, 0))
+	if err != nil || report.State != "READY" || report.Branch != "main" || report.MutationTarget != "" {
+		t.Fatalf("report=%+v err=%v", report, err)
+	}
+	foundHandoff := false
+	for _, check := range report.Checks {
+		if check.Name == "completion_handoff" && check.Status == "pass" {
+			foundHandoff = true
+		}
+	}
+	if !foundHandoff {
+		t.Fatalf("completion handoff evidence missing: %+v", report.Checks)
+	}
+}
+
 func TestAssessReadyWithAvailableGitHubBranchMetadataSource(t *testing.T) {
 	root, config, git, github := readyInputs(t)
 	config.AuthoritySource = AuthoritySourceGitHubBranchMetadata
