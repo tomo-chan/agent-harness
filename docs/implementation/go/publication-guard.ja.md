@@ -1,20 +1,20 @@
-[ツール仕様書](../../spec/agent-harness-spec.ja.md) | [Repository Authority / Posture](repository-authority-posture.ja.md) | [Issue #21](https://github.com/tomo-chan/agent-harness/issues/21)
+[ツール仕様書](../../spec/agent-harness-spec.ja.md) | [リポジトリの変更権限 / 状態](repository-authority-posture.ja.md) | [Issue #21](https://github.com/tomo-chan/agent-harness/issues/21)
 
-# Go 実装ノート — Publication Guard
+# Go 実装ノート — 公開保護
 
 ## 1. 位置づけと範囲
 
-本書は、Agent Harness 全体仕様の Publication Guard を Go で具体化し、S3
-保証スライスで評価するための実装記録である。Publication Guard はツール
+本書は、Agent Harness 全体仕様の公開保護を Go で具体化し、S3
+保証スライスで評価するための実装記録である。公開保護はツール
 アーキテクチャ上の責務名であり、S3 は横断的な保証レビュー軸である。
 `internal/publication` を「S3 package」とは扱わない。
 
 比較基線は次のとおりである。
 
 - 全体仕様: PR #16 HEAD `936e41e46f3e0017569507fa7488340b14c4a912`
-- Go Trusted Runtime / Policy Enforcement: PR #15 HEAD `139dede4d0d0b32956309cbd82b59d83a481f4e6`
-- Go Repository Authority / Posture: PR #20 HEAD `cde34e350a2fb762e335693b52c259f60d523ac1`
-- Python S3 reference: PR #8 HEAD `adf939ec9960c6a67043176f217cc050ad239b98`
+- Go 信頼された実行環境 / ポリシー強制: PR #15 HEAD `139dede4d0d0b32956309cbd82b59d83a481f4e6`
+- Go リポジトリの変更権限 / 状態: PR #20 HEAD `cde34e350a2fb762e335693b52c259f60d523ac1`
+- Python S3 参照実装: PR #8 HEAD `adf939ec9960c6a67043176f217cc050ad239b98`
 
 本実装は PR #20 に stack し、同PRの trusted task binding、固定GitHub endpoint、
 current/default branch authority、GitHub rules / branch metadata source、fresh
@@ -29,22 +29,18 @@ S6の責務であり、本実装で先回りしない。
 
 ## 2. 実行経路と責任分担
 
-```text
-generic hook JSON
-        ↓ strict parse / normalized action
-trusted policy.json
-        ↓ deny > ask > allow
-publication候補を通常mutationと分離して分類
-        ├─ no  → 既存Repository Authority / direct mutation経路
-        └─ yes
-             ↓ Repository Authority / Postureをpublication handoffとしてfresh評価
-             ├─ BLOCKED / unknown → deny（unknownはexit 2）
-             └─ READY
-                  ↓ Publication Guard
-                  ├─ canonical + 全check pass →元のallow / askを維持
-                  ├─ known dangerous target → deny
-                  ├─ compound / ambiguous / noncanonical → ask
-                  └─ Git / GitHub取得不能 → deny + exit 2
+```mermaid
+flowchart TD
+    A[汎用フック JSON] -->|厳格な解析 / 正規化された操作| B[信頼された policy.json]
+    B -->|拒否が承認要求・許可より優先| C{公開候補か}
+    C -->|いいえ| D[既存のリポジトリ変更権限 / 直接変更経路]
+    C -->|はい| E[リポジトリの変更権限 / 状態を<br/>公開引継ぎとして都度評価]
+    E -->|BLOCKED / 不明| F[拒否<br/>不明時は終了コード 2]
+    E -->|READY| G{公開保護}
+    G -->|正規形かつ全検査合格| H[元の許可 / 承認要求を維持]
+    G -->|既知の危険対象| I[拒否]
+    G -->|複合 / 曖昧 / 非正規形| J[承認要求]
+    G -->|Git / GitHub取得不能| K[拒否 + 終了コード 2]
 ```
 
 `repository.AssessPublication` はdirect-file target検査だけをPublication Guardへ委譲し、
@@ -69,7 +65,7 @@ publication意味、`;` / `&&` / pipe / redirect / 改行はambiguousまたはco
 
 汎用shell parserは実装しない。literal tokenへ安全に縮約できる次の正規形だけを自律許可候補にする。
 
-### Canonical push
+### 正規形の push
 
 ```text
 git push origin HEAD:refs/heads/<current-branch>
@@ -96,7 +92,7 @@ git push --set-upstream origin HEAD:refs/heads/<current-branch>
 どの承認経路へ送るかはQ-04/Q-05の接続事項として残す。Publication Guard側で404を成功へ
 読み替えてS2を弱化しない。
 
-### Canonical PR create
+### 正規形の PR 作成
 
 ```text
 gh pr create --fill
@@ -115,7 +111,7 @@ gh pr create --fill
 title/body/head/base等を自由に組み立てるshell grammarは本最小実装に含めない。`--fill`以外は
 通常approvalへ送り、将来広げる場合も構造化adapter入力または追加の狭い正規形として具体化する。
 
-## 4. `gh-merge-base` findingの再評価
+## 4. `gh-merge-base` に関する発見の再評価
 
 Python PR #8のreviewでは、`--base`を拒否した後のimplicit baseをGitHub default branchへ
 委ねるとして旧指摘を解決していた。しかし`gh pr create`は、明示`--base`がない場合でも
@@ -136,7 +132,7 @@ Go具体化では次を決定的な規則にした。
 誤認しないためである。これはGitHub側のPR作成認可や、作成後のbase確認を実装したという
 意味ではない。
 
-## 5. Repository-controlled config / environment
+## 5. リポジトリ管理下の設定 / 環境
 
 Publication Guardはlocal common configとper-worktree configを同時に観測する。origin、push URL、
 mirror、upstreamは入力として信用せず、S2 repository / current branchとの一致条件へ変換する。
@@ -160,7 +156,7 @@ environmentでcommandを起動する」ことを証明しない。PATH resolutio
 検証と実行のTOCTOUをhard boundaryにするにはexecutorとの構造化handoffが必要であり、
 本PRではその配備契約を先取りしない。
 
-## 6. Evidence
+## 6. 根拠
 
 既存のpolicy/action EvidenceとRepository Evidenceに、`publication` Evidenceを追加する。
 
@@ -180,9 +176,9 @@ push前のGitHub branch headはpublication後の値と一致する必要がな�
 しない。PR作成では「現在のlocal HEADが既に同repository / branchへ公開済み」を証明するため
 必須とする。
 
-## 7. 仕様 → Go具体化 → S3 Evidence
+## 7. 仕様 → Goによる具体化 → S3 の根拠
 
-| 全体仕様 | Goでの具体化 | 決定的Evidence | 評価 |
+| 全体仕様 | Goによる具体化 | 決定的な根拠 | 評価 |
 |---|---|---|---|
 | PU-01 | publication候補を通常mutationから分離し、canonical feature push / PR createだけをfresh repository / branch / commit / targetへ束縛 | `TestCanonicalPushBindsTargetAndEvidence`、`TestCanonicalPRCreateBindsImplicitBaseAndPublishedHead`、runtime integration | direct observable publication範囲で部分適合 |
 | RE-01/02 | `AssessPublication`でS2 identity/worktree/branch/protectionを再利用し、publicationでbranch/HEAD/originを再照合 | `TestAssessPublicationReusesRepositoryAuthorityWithoutDirectFileTarget`、actual linked worktree tests | S2前提付き適合 |
@@ -194,7 +190,7 @@ push前のGitHub branch headはpublication後の値と一致する必要がな�
 
 この表はS3全体、実executor、GitHub側最終認可、実配備の適合済み宣言ではない。
 
-## 8. Python S3とのdifferential comparison
+## 8. Python S3との差分比較
 
 | 観点 | Python PR #8 | Go具体化 | 評価 |
 |---|---|---|---|
@@ -228,7 +224,7 @@ Goの回帰testへ追加した。
 
 GitHub Actions状態はPR本文へ記録する。
 
-## 10. Open Questions / implementation notes
+## 10. 未決事項 / 実装メモ
 
 - Q-01/Q-10: binary version、source/toolchain/build provenance、artifact署名・更新・rollback・失効は未実装。
 - Q-02: `gh pr create --fill`と2つのpush形は実験上の正規形であり、安定CLI契約ではない。
