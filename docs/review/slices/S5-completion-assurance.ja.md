@@ -1,25 +1,25 @@
-# S5 保証スライス — Completion Assurance
+# S5 保証スライス — 完了保証
 
 ## 主張
 
-決定的なrepository/delivery条件を満たしたことと、タスク要求が意味的に完了したことを混同しない。S5は前者をEvidenceとしてAgentへ返し、後者の非決定的評価をAgentに残す。
+決定的なリポジトリ / 配送条件を満たしたことと、タスク要求が意味的に完了したことを混同しない。S5 は前者を根拠としてエージェントへ返し、後者の非決定的評価をエージェントに残す。
 
 ## 前提
 
-- trusted runtimeがfresh Repository Authorityを取得できる。
-- Git/GitHub observation providerがtrusted execution boundaryから供給される。
-- repository-specific deterministic gateは別途trustedに構成される。
+- 信頼された実行環境がリポジトリ変更権限を都度取得できる。
+- Git / GitHub の観測機構が信頼された実行境界から供給される。
+- リポジトリ固有の決定的ゲートが別途、信頼された形で構成される。
 
 ## 保証規則
 
-1. SessionStart snapshotをcompletion authorityにしない。
-2. Stop時のfresh repository reportとcurrent branch/HEADを再照合する。
-3. no-delivery-delta shortcutはclean READY default branchかつGitHub authoritative HEAD一致時のみ成立する。
-4. それ以外はdeterministic gateを実行する。
-5. deterministic failureはblocked。
-6. deterministic successの初回Stopはreview_required。
-7. follow-up Stopでもdeterministic assuranceを再実行し、成功時だけcomplete。
-8. semantic completionをdeterministic条件へ還元しない。
+1. SessionStart のスナップショットを完了判定の権威ある情報にしない。
+2. 停止時に都度取得したリポジトリ報告と現在のブランチ / HEAD を再照合する。
+3. 配送差分なしの短絡判定は、清浄な READY 状態の既定ブランチで、GitHub の権威ある HEAD と一致する場合だけ成立する。
+4. それ以外は決定的ゲートを実行する。
+5. 決定的検査の失敗は停止とする。
+6. 決定的検査が成功した最初の停止ではレビュー要求を返す。
+7. 後続の停止でも決定的保証を再実行し、成功時だけ完了とする。
+8. 意味上の完了を決定的条件へ還元しない。
 
 ## 具体化
 
@@ -27,7 +27,7 @@
 - `internal/completion/completion_test.go`
 - `docs/implementation/go/completion-assurance.ja.md`
 
-## Evidence
+## 根拠
 
 repository、branch、local HEAD、default branch、GitHub default HEAD、no-delivery-delta、各checkのpass/fail/unknownを保持する。
 

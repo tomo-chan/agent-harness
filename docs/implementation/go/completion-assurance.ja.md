@@ -1,45 +1,41 @@
-# Go Completion Assurance 実装ノート
+# Go 完了保証 実装ノート
 
 ## 位置づけ
 
-Completion Assurance は「既知で決定的に表現可能な完了条件」と、Agentが担う非決定的なsemantic completion evaluationを分離する。
+完了保証は「既知で決定的に表現可能な完了条件」と、エージェントが担う非決定的な意味上の完了評価を分離する。
 
-S5 は保証スライスであり、vendor hook形式ではない。Go coreは `internal/completion` に実装し、Claude Code / Codex / Devin のStopイベント変換はS6で接続する。
+S5 は保証スライスであり、ベンダーフック形式ではない。Go の中核は `internal/completion` に実装し、Claude Code / Codex / Devin の停止イベント変換は S6 で接続する。
 
 ## 中核契約
 
 決定的保証が成功しても、それだけでタスクが意味的に完了したとは主張しない。
 
-```text
-fresh deterministic assurance
-  ↓
-Evidence
-  ↓
-Agent semantic completion review
-  ├─ 追加作業 → 継続
-  ├─ 要求元判断が必要 → ask
-  └─ 完了可能 → follow-up Stop
-                     ↓
-              deterministic recheck
-                     ↓
-                  complete
+```mermaid
+flowchart TD
+    A[都度取得した決定的保証] --> B[根拠]
+    B --> C{エージェントによる<br/>意味上の完了レビュー}
+    C -->|追加作業| D[継続]
+    C -->|要求元の判断が必要| E[承認要求]
+    C -->|完了可能| F[後続の停止イベント]
+    F --> G[決定的な再検査]
+    G --> H[完了]
 ```
 
-## Authority
+## 権威ある情報
 
-Stop時に取得したfresh Repository Authority reportを入力とする。SessionStart snapshot、過去のpreflight、local `origin/main` 等をcompletion authorityとして受け入れない。
+停止時に都度取得したリポジトリ変更権限の報告を入力とする。SessionStart のスナップショット、過去の事前検査、ローカル `origin/main` 等を完了判定の権威ある情報として受け入れない。
 
 S5 coreは次を再照合する。
 
-- current branch
-- local HEAD
-- fresh reportに束縛されたrepository/default branch
-- no-delivery-delta判定時のGitHub default branch head
-- worktree cleanliness（untrackedを含む）
+- 現在のブランチ
+- ローカル HEAD
+- 都度取得した報告に束縛されたリポジトリ / 既定ブランチ
+- 配送差分なし判定時の GitHub 既定ブランチ先頭
+- ワークツリーの清浄性（未追跡ファイルを含む）
 
-## No-delivery-delta
+## 配送差分なし
 
-次のすべてが成立する場合だけ「repository delivery deltaなし」を決定的Evidenceとして成立させる。
+次のすべてが成立する場合だけ「リポジトリ配送差分なし」を決定的な根拠として成立させる。
 
 - fresh reportが`READY`
 - current branch = authoritative default branch
@@ -47,15 +43,15 @@ S5 coreは次を再照合する。
 - local HEAD = fresh report HEAD
 - GitHubから直接取得したdefault branch head = local HEAD
 
-これはsemantic completionではなく、repository delivery差分がないという機械的事実だけを意味する。
+これは意味上の完了ではなく、リポジトリ配送差分がないという機械的事実だけを意味する。
 
-## 通常のdeterministic gate
+## 通常の決定的ゲート
 
 no-delivery-deltaを証明できない場合はrepository-specific `Gate`へ委譲する。
 
 Gate失敗は`blocked`。Gate成功はdeterministic assurance成功に過ぎず、初回Stopでは`review_required`を返す。
 
-## Follow-up
+## 後続確認
 
 初回のdeterministic assurance成功:
 
@@ -70,7 +66,7 @@ follow-up Stop:
 
 書込み可能なrepository stateに「Agent review済み」flagを保存しない。follow-up markerのvendor-specific取得と信頼境界はS6で扱う。
 
-## Evidence
+## 根拠
 
 - repository
 - branch
@@ -86,20 +82,20 @@ follow-up Stop:
   - github_default_head
   - deterministic_gate
 
-unknownは成功に変換しない。
+不明状態は成功に変換しない。
 
 ## 検証
 
 `internal/completion/completion_test.go`で次を固定する。
 
-- clean default branchでも初回はsemantic review必須
-- follow-upでdeterministic recheck後にcomplete可能
-- feature branchはdeterministic gateを使用
-- gate failureはblocked
-- dirty default branchはno-delta shortcut不可
+- 清浄な既定ブランチでも初回は意味上のレビューが必須
+- 後続確認で決定的な再検査後に完了可能
+- 機能ブランチは決定的ゲートを使用
+- ゲート失敗は停止
+- 未反映変更がある既定ブランチは配送差分なしの短絡判定を使用不可
 - GitHub head mismatchはno-delta shortcut不可
 - branch/HEAD変化はblocked
-- provider欠落はfail closed
+- 情報取得機構の欠落はフェイルクローズ
 
 ## 対象外
 
