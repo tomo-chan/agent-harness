@@ -6,60 +6,60 @@
 
 | 関心事 | Claude Code | OpenAI Codex | Devin CLI |
 |---|---|---|---|
-| 行動ガイダンス | CLAUDE.md / rules / skills | AGENTS.md / skills | AGENTS.md / rules / skills |
-| ライフサイクルポリシー | Hooks | Hooks | Hooks |
+| 行動ガイダンス | CLAUDE.md / 規則 / スキル | AGENTS.md / スキル | AGENTS.md / 規則 / スキル |
+| ライフサイクルポリシー | フック | フック | フック |
 | 実行前セマンティックゲート | PreToolUse | PreToolUse | PreToolUse |
 | 実行後検証 | PostToolUse | PostToolUse | PostToolUse |
-| 承認介入 | PermissionRequest | PermissionRequest / approval architecture | PermissionRequest |
+| 承認介入 | PermissionRequest | PermissionRequest / 承認アーキテクチャ | PermissionRequest |
 | 完了ゲート | Stop | Stop | Stop |
-| 静的 command/tool policy | Permissions | Rules / approval policy | Permissions |
-| OS Sandbox | Seatbelt / bubblewrap 系 sandbox | Codex sandbox | OS sandbox |
-| Network Policy | sandbox domain controls | sandbox/network controls | sandbox domain controls。実運用前に current stability を再確認 |
-| Central / Enterprise Policy | managed settings | managed configuration / requirements | Team Settings |
-| Observability | hooks / telemetry integrations | OTel / agent-native events | hooks / enterprise analytics |
-| Local-to-cloud transition | 別 workflow として扱う | Codex cloud architecture | `/handoff` |
+| 静的コマンド / ツールポリシー | Permissions | Rules / 承認ポリシー | Permissions |
+| OS サンドボックス | Seatbelt / bubblewrap 系サンドボックス | Codex サンドボックス | OS サンドボックス |
+| ネットワークポリシー | サンドボックスのドメイン制御 | サンドボックス / ネットワーク制御 | サンドボックスのドメイン制御。実運用前に現在の安定性を再確認 |
+| 中央 / 企業ポリシー | 管理設定 | 管理設定 / 要件 | Team Settings |
+| 観測可能性 | フック / テレメトリー統合 | OTel / エージェント固有イベント | フック / 企業向け分析 |
+| ローカルからクラウドへの遷移 | 別ワークフローとして扱う | Codex クラウドアーキテクチャ | `/handoff` |
 
 ## Claude Code
 
 公式ドキュメント: [Claude Code Hooks](https://code.claude.com/docs/en/hooks) / [Sandboxing](https://code.claude.com/docs/en/sandboxing)
 
-Claude Code は lifecycle hook の種類が多く、semantic orchestration を細かく組み込みやすい製品です。一方で、Hook Command 自体を通常の Agent Shell Command と同じ Sandbox に守られていると仮定してはいけません。Hook Code は trusted code として小さく、defensive に保ちます。
+Claude Code はライフサイクルフックの種類が多く、意味論的なオーケストレーションを細かく組み込みやすい製品です。一方で、フックコマンド自体を通常のエージェント用シェルコマンドと同じサンドボックスに守られていると仮定してはいけません。フックコードは信頼されたコードとして小さく、防御的に保ちます。
 
 ## Codex
 
 公式ドキュメント: [OpenAI Codex documentation](https://developers.openai.com/codex/) / [Codex open-source repository](https://github.com/openai/codex)
 
-Codex は Sandbox、Approval Policy、Rules、Managed Configuration、Telemetry の責務分離が明確で、外部 Harness を設計する際の参考になります。App Server を使う構成では Tool Approval を structured control-plane event として扱いやすくなります。ただし Hook の failure semantics は version ごとに確認し、Hard Invariant は独立した boundary で保護します。
+Codex はサンドボックス、承認ポリシー、規則、管理設定、テレメトリーの責務分離が明確で、外部の Agent Harness を設計する際の参考になります。App Server を使う構成ではツール承認を構造化された制御プレーンイベントとして扱いやすくなります。ただしフック失敗時の意味論はバージョンごとに確認し、重要な不変条件は独立した境界で保護します。
 
 ## Devin CLI
 
 公式ドキュメント: [Devin CLI Hooks](https://docs.devin.ai/cli/extensibility/hooks/overview) / [Permissions](https://docs.devin.ai/cli/reference/permissions)
 
-Devin CLI は Permissions と Sandbox Scope の結びつきが強く、Autonomous Sandbox Mode により unattended workload を構成しやすい設計です。Direct edit/write tool の境界や network filtering の成熟度は周辺アーキテクチャで補完します。また Local から Cloud への Handoff は別 trust domain への遷移として扱います。
+Devin CLI は権限とサンドボックスの適用範囲の結びつきが強く、自律サンドボックスモードにより無人ワークロードを構成しやすい設計です。直接編集 / 書き込みツールの境界やネットワークフィルタリングの成熟度は周辺アーキテクチャで補完します。またローカルからクラウドへの引継ぎは別の信頼領域への遷移として扱います。
 
-## Portability Strategy
+## 移植性の方針
 
-内部では以下の flow に統一します。
+内部では以下の流れに統一します。
 
 ```mermaid
 flowchart LR
-    V[Vendor event] --> A1[Vendor Adapter]
-    A1 --> N[Normalized Action]
-    N --> P[Policy Engine]
-    P --> D{Decision}
-    D -->|allow| A2[Vendor Adapter]
-    D -->|ask| A2
-    D -->|deny| A2
-    A2 --> R[Vendor response]
+    V[ベンダーイベント] --> A1[ベンダーアダプター]
+    A1 --> N[正規化された操作]
+    N --> P[ポリシーエンジン]
+    P --> D{判断}
+    D -->|許可| A2[ベンダーアダプター]
+    D -->|承認要求| A2
+    D -->|拒否| A2
+    A2 --> R[ベンダー固有の応答]
 ```
 
-現行の Go 実装は [`internal/policy/policy.go`](../../internal/policy/policy.go)、共通 Vendor Mapping は [`internal/vendor/adapter.go`](../../internal/vendor/adapter.go) を参照してください。
+現行の Go 実装は [`internal/policy/policy.go`](../../internal/policy/policy.go)、共通のベンダー写像は [`internal/vendor/adapter.go`](../../internal/vendor/adapter.go) を参照してください。
 
-すべての Vendor Feature を完全に抽象化する必要はありません。組織側が所有すべき Security / Orchestration Semantics だけを正規化し、各製品固有の有用な機能は Adapter の背後に残します。
+すべてのベンダー機能を完全に抽象化する必要はありません。組織側が所有すべきセキュリティ / オーケストレーションの意味論だけを正規化し、各製品固有の有用な機能はアダプターの背後に残します。
 
 ## 実装時の注意
 
-各製品の Hook Schema、Decision Field、Failure Behavior、Sandbox Capability は変化し得ます。Adapter は version-aware にし、CI で schema conformance test を実行できる構成を推奨します。特に Production 導入前には、各製品の最新公式仕様と実動作を再検証してください。
+各製品のフックスキーマ、判断フィールド、失敗時動作、サンドボックス能力は変化し得ます。アダプターはバージョンを認識できる構成にし、CI でスキーマ適合テストを実行できるようにすることを推奨します。特に本番導入前には、各製品の最新公式仕様と実動作を再検証してください。
 
 ---
 

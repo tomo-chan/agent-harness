@@ -1,72 +1,69 @@
-# Production Implementation Policy — Go only
+# 本番実装方針 — Go のみ
 
 ## 決定
 
-Agent Harness の production implementation は Go のみとする。
+Agent Harness の本番実装は Go のみとする。
 
-Python 実装は廃止し、今後の適合対象、回帰対象、互換対象、differential comparison 対象には含めない。
+Python 実装は廃止し、今後の適合対象、回帰対象、互換対象、差分比較対象には含めない。
 
 ## 保証の基準
 
 今後の収束判定は、次の関係だけを対象とする。
 
-```text
-Tool Specification / Guarantee Contract
-  ↓ refinement
-Go production implementation
-  ↓ evidence
-Deterministic Conformance Assurance
-  ↓ findings
-Evolution
+```mermaid
+flowchart TD
+    A[ツール仕様 / 保証契約] -->|具体化| B[Go による本番実装]
+    B -->|根拠| C[決定的な適合保証]
+    C -->|発見| D[進化]
 ```
 
-Pythonとの実装差、decision一致、byte互換、test vector一致は完了条件にしない。
+Python との実装差、判断一致、バイト互換、テストデータ一致は完了条件にしない。
 
-## Pythonから引き継ぐもの
+## Python から引き継ぐもの
 
-Python実装そのものは保持しないが、過去の具体化・レビューで得られた一般化可能なfindingは知識として保持してよい。
+Python 実装そのものは保持しないが、過去の具体化・レビューで得られた一般化可能な発見は知識として保持してよい。
 
 例:
 
-- writable stateをauthorityとして扱わない
-- local remote-tracking refをGitHub authorityの代替にしない
-- compound shell commandをread-only/publishableと誤分類しない
-- implicit Git/GitHub configurationによるpublication target変更を考慮する
-- interpreter/import/environment依存はtrusted runtimeのfailure modeになり得る
-- deterministic completion stateだけでsemantic task completionを確定しない
+- 書き込み可能な状態を権威ある情報として扱わない
+- ローカルのリモート追跡参照を GitHub の権威ある情報の代替にしない
+- 複合シェルコマンドを読み取り専用 / 公開可能と誤分類しない
+- 暗黙の Git / GitHub 設定による公開対象の変更を考慮する
+- インタープリター / 読み込み / 環境依存は信頼された実行環境の失敗形態になり得る
+- 決定的な完了状態だけで意味上のタスク完了を確定しない
 
-これらはPython互換性のためではなく、Guarantee Contract、Go tests、Evidence、設計判断へ一般化された知識として残す。
+これらは Python 互換性のためではなく、保証契約、Go テスト、根拠、設計判断へ一般化された知識として残す。
 
 ## 削除対象
 
-- Python production/reference implementation
-- Python専用unit/integration tests
-- Python↔Go differential regression
-- Pythonを将来のreference implementationとして維持する記述
+- Python の本番 / 参照実装
+- Python 専用の単体 / 統合テスト
+- Python ↔ Go の差分回帰
+- Python を将来の参照実装として維持する記述
 - Python実装との機能同等性を完了条件とする記述
 
 ## 維持対象
 
-- Go production implementation
-- 実装非依存のTool Specification / glossary
-- Assurance Slice review documents
-- Go implementation notes
-- Python由来であっても一般化済みのfinding / decision history
-- shell/JSON/Kubernetes等、言語実装ではないdeployment/reference資材
+- Go による本番実装
+- 実装非依存のツール仕様 / 用語集
+- 保証スライスのレビュー文書
+- Go 実装ノート
+- Python 由来であっても一般化済みの発見 / 判断履歴
+- シェル / JSON / Kubernetes 等、言語実装ではない配備 / 参照資材
 
-## Evolution
+## 進化
 
-今後のfindingは、Go implementationと仕様・Guarantee Contract・Evidenceの不整合として扱う。
+今後の発見は、Go 実装と仕様・保証契約・根拠の不整合として扱う。
 
 実装で仕様不足を発見した場合は、単純にGoを既存仕様へ合わせるのではなく、次を判定する。
 
-1. specification deficiency
-2. implementation error
-3. new requirement
-4. external assurance responsibility
+1. 仕様の不足
+2. 実装エラー
+3. 新しい要求
+4. 外部保証の責任
 
-必要ならモデルをEvolutionし、その後Go implementationとdeterministic assuranceを更新する。
+必要ならモデルを進化させ、その後 Go 実装と決定的保証を更新する。
 
-## 旧Python PR
+## 旧 Python PR
 
-旧Python実装PRはmergeせずcloseする。履歴はGit/GitHub上のhistorical evidenceとして参照可能だが、active implementation lineには含めない。
+旧 Python 実装 PR はマージせず閉じる。履歴は Git / GitHub 上の歴史的根拠として参照可能だが、現行の実装系列には含めない。

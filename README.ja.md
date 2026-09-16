@@ -2,11 +2,11 @@
 
 # Agent Harness 日本語版
 
-Claude Code / OpenAI Codex / Devin CLI などの自律型ソフトウェア開発エージェントを、安全かつ再利用可能な形で運用するための、ベンダー非依存アーキテクチャと **Go production implementation** です。
+Claude Code / OpenAI Codex / Devin CLI などの自律型ソフトウェア開発エージェントを、安全かつ再利用可能な形で運用するための、ベンダー非依存アーキテクチャと **Go による本番実装**です。
 
 このリポジトリの中心的な考え方は、**LLM 自体をセキュリティ境界として扱わない**ことです。自律実行は、独立したポリシー、OS サンドボックス、Pod/コンテナ分離、外部 IAM、ネットワーク制御、機械検証可能な完了条件によって制約されるべきです。
 
-Production implementation は Go に一本化しています。旧 Python implementation は廃止し、reference / compatibility / differential regression の適合対象には含めません。Python 実装で得た有効な finding は、Guarantee Contract、Go tests、Evidence、decision history へ一般化された知識としてのみ保持します。
+本番実装は Go に一本化しています。旧 Python 実装は廃止し、参照実装 / 互換性 / 差分回帰の適合対象には含めません。Python 実装で得た有効な発見は、保証契約、Go テスト、根拠、判断履歴へ一般化された知識としてのみ保持します。
 
 ## 基本アーキテクチャ
 
