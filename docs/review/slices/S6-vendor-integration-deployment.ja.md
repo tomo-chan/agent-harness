@@ -1,21 +1,21 @@
-# S6 保証スライス — Vendor Integration / Deployment
+# S6 保証スライス — ベンダー統合 / 配備
 
 ## 主張
 
-Vendor adapterはvendor lifecycle eventを共通Agent Harness contractへ写像し、S1〜S5のdecision / completion semanticsを弱化しない。
+ベンダーアダプターはベンダーのライフサイクルイベントを共通の Agent Harness 契約へ写像し、S1〜S5 の判断 / 完了意味論を弱化しない。
 
 ## 保証規則
 
-1. vendor payloadから共通`PreToolUse` / `Stop` / `SessionStart`へ正規化する。
-2. `PreToolUse`は共通policy actionへ接続する。
-3. `Stop`はS5 Completion Assuranceへ接続する。
-4. vendorがnative `ask`を表現できない場合、deny/blockへ狭めてもallowへ広げない。
-5. S5の`review_required`をStop成功へ変換しない。
-6. vendor hostが供給するfollow-up markerをS5へ保持して渡す。
-7. malformed / unknown / evaluator failureはfail-closed。
-8. repository入力からtrusted evaluator実装を差替えない。
+1. ベンダー入力から共通の `PreToolUse` / `Stop` / `SessionStart` へ正規化する。
+2. `PreToolUse` は共通ポリシー操作へ接続する。
+3. `Stop` は S5 完了保証へ接続する。
+4. ベンダーが製品固有の `ask` を表現できない場合、拒否 / 停止へ狭めても許可へ広げない。
+5. S5 の `review_required` を停止成功へ変換しない。
+6. ベンダー実行環境が供給する後続確認マーカーを S5 へ保持して渡す。
+7. 不正 / 不明 / 評価器失敗はフェイルクローズとする。
+8. リポジトリ入力から信頼された評価器実装を差し替えない。
 
-## Vendor契約の確認状態
+## ベンダー契約の確認状態
 
 2026-09-14時点の公開公式仕様で、Claude CodeとCodexは`Stop`入力の`stop_hook_active`を明示的に定義し、「Stop hookによって既に継続されたturnか」を表す。したがってこの2製品については、host supplied lifecycle stateをS5のfollow-up markerへ写像するcontractを根拠付きで評価できる。
 
@@ -32,7 +32,7 @@ Devinについては、現時点で公開公式ドキュメントから同等の
 - `internal/buildinfo/`
 - `docs/implementation/go/vendor-integration-deployment.ja.md`
 
-## Deployment assurance
+## 配備保証
 
 Go production implementationではsource→toolchain→artifact→distribution→installed binaryのtrust chainを新たに明示する。
 
@@ -40,7 +40,7 @@ S6 reviewではコード内のpath checkだけをdeployment guaranteeとして�
 
 CIはLinux/macOSを独立に評価し、unit/race/vet/buildに加えてdistribution candidate、build identity、SHA-256 manifestをartifactとして保存する。片方のOSが失敗しても他方のEvidenceを失わないようmatrixのfail-fastを無効化する。
 
-## Review finding
+## レビューでの発見
 
 macOSではtemporary directoryの`/var/...`がcanonical pathとして`/private/var/...`へ解決される。trusted path実装は正規化済みpathを返していたが、初期testが非正規化pathとの文字列一致を要求して失敗した。実装の信頼境界を弱めず、test側をcanonical path比較へ修正した。このfindingをcross-platform trusted-path regressionとして保持する。
 

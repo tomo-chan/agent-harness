@@ -1,14 +1,14 @@
-# Go Vendor Integration / Deployment 実装ノート
+# Go ベンダー統合 / 配備 実装ノート
 
 ## 位置づけ
 
-本書は Agent Harness 全体仕様の Vendor Integration / Deployment を Go production implementation でどのように具体化するかを記録する。
+本書は Agent Harness 全体仕様のベンダー統合 / 配備を、Go による本番実装でどのように具体化するかを記録する。
 
-S6 は保証スライスであり、Claude Code / Codex / Devin という製品名を core assurance の内部モデルへ持ち込むためのものではない。Vendor adapter は lifecycle event / response schema を共通契約へ写像し、S1〜S5 の保証結果を弱化しないことを責務とする。
+S6 は保証スライスであり、Claude Code / Codex / Devin という製品名を中核保証の内部モデルへ持ち込むためのものではない。ベンダーアダプターはライフサイクルイベント / 応答スキーマを共通契約へ写像し、S1〜S5 の保証結果を弱化しないことを責務とする。
 
-## 共通 lifecycle contract
+## 共通ライフサイクル契約
 
-Go 実装は vendor input を次の共通イベントへ正規化する。
+Go 実装はベンダー入力を次の共通イベントへ正規化する。
 
 - `SessionStart`
 - `PreToolUse`
@@ -18,7 +18,7 @@ Go 実装は vendor input を次の共通イベントへ正規化する。
 
 `stop_hook_active` は repository stateへ永続化せず、vendor payloadから follow-up Stop marker として `completion.Request.FollowUp` へ渡す。
 
-## Vendor別 decision mapping
+## ベンダー別の判断写像
 
 ### Claude Code
 
@@ -28,48 +28,48 @@ Go 実装は vendor input を次の共通イベントへ正規化する。
 
 ### Codex
 
-現行参照adapter contractでは native `ask` を直接表現しないため、
+現行の参照アダプター契約では製品固有の `ask` を直接表現しないため、
 
 - `allow` → allow
-- `ask` → deny（reasonにapproval requiredを保持）
+- `ask` → 拒否（理由に承認が必要であることを保持）
 - `deny` → deny
 
 とする。`ask` を `allow` へ弱化しない。
 
 ### Devin
 
-- `allow` → empty success response
-- `ask` / `deny` → block
+- `allow` → 空の成功応答
+- `ask` / `deny` → 停止
 
-とする。`ask` は approval required の理由を保持する。
+とする。`ask` は承認が必要である理由を保持する。
 
-## Stop mapping
+## 停止イベントの写像
 
-S5 Completion Assurance の結果に対して、`complete` だけを vendor Stop 成功へ写像する。
+S5 完了保証の結果に対して、`complete` だけをベンダーの停止成功へ写像する。
 
-- `blocked` → block
-- `review_required` → blockし、Agentへsemantic completion reviewを要求
+- `blocked` → 停止
+- `review_required` → 停止し、エージェントへ意味上の完了レビューを要求
 - `complete` → Stop許可
 
-したがって deterministic assurance が一度成功しただけでvendor adapterがタスク終了を許可する経路はない。
+したがって決定的保証が一度成功しただけでベンダーアダプターがタスク終了を許可する経路はない。
 
 ## SessionStart
 
-SessionStartは診断・文脈供給だけを行い、completion authority snapshotを保存しない。権威あるcompletion判断はStop時にfresh stateを再評価するS5へ委譲する。
+SessionStart は診断・文脈供給だけを行い、完了判定の権威ある情報のスナップショットを保存しない。権威ある完了判断は、停止時に状態を都度再評価する S5 へ委譲する。
 
-## Fail-closed
+## フェイルクローズ
 
 次はfail-closedとする。
 
-- malformed JSON
-- unsupported lifecycle event
-- missing/invalid `tool_name` / `tool_input` / `cwd`
-- unsupported vendor
-- trusted evaluator未接続
-- S1〜S5 evaluator error
-- unknown decision value
+- 不正な JSON
+- 未対応のライフサイクルイベント
+- `tool_name` / `tool_input` / `cwd` の欠落または不正
+- 未対応のベンダー
+- 信頼された評価器が未接続
+- S1〜S5 評価器のエラー
+- 不明な判断値
 
-unknown vendor decisionはallowに変換しない。
+不明なベンダー判断は許可に変換しない。
 
 ## 実装
 
@@ -98,7 +98,7 @@ unknown vendor decisionはallowに変換しない。
   - evaluator failure
   - trusted completion gate path
 
-## Production wiring boundary
+## 本番接続の境界
 
 `internal/vendor` は vendor-specific schema translationを担い、trusted evaluator自体の選択権を持たない。Productionでは固定binaryが `internal/trustedexec` のevaluatorを注入する。
 
@@ -106,43 +106,36 @@ unknown vendor decisionはallowに変換しない。
 
 Completion gateもrepository内scriptを直接実行せず、trusted binaryと同じtrusted rootの固定名 `completion-gate` executableへ束縛する。これにより、repository mutationがcompletion判定そのものを書き換える経路を持たせない。
 
-## Deployment trust chain
+## 配備の信頼連鎖
 
 Go単一binary化でPython interpreter/import pathの可変性は減るが、代わりに次のtrust chainがproduction responsibilityになる。
 
-```text
-source commit
-  ↓
-Go toolchain + build flags
-  ↓
-build artifact
-  ↓
-provenance / digest / signature
-  ↓
-distribution channel
-  ↓
-installed binary
-  ↓
-trusted configuration
-  ↓
-vendor hook invocation
+```mermaid
+flowchart TD
+    A[ソースコミット] --> B[Go ツールチェーン + ビルドフラグ]
+    B --> C[ビルド成果物]
+    C --> D[来歴 / ダイジェスト / 署名]
+    D --> E[配布経路]
+    E --> F[導入済みバイナリ]
+    F --> G[信頼された設定]
+    G --> H[ベンダーフックの呼出し]
 ```
 
 最低限、次を識別・検証可能にする必要がある。
 
-- source commit ↔ artifact対応
+- ソースコミット ↔ 成果物の対応
 - Go version / target OS / architecture
-- reproducible or attestable build provenance
-- artifact SHA-256
-- signing / verification policy
-- versioning
-- staged update
-- rollback
-- revocation
-- stale binary検出
-- installed binaryとtrusted configのbinding
+- 再現可能または証明可能なビルド来歴
+- 成果物の SHA-256
+- 署名 / 検証ポリシー
+- バージョン管理
+- 段階更新
+- ロールバック
+- 失効
+- 古いバイナリの検出
+- 導入済みバイナリと信頼された設定の束縛
 
-### Binary self-identification
+### バイナリの自己識別
 
 `internal/buildinfo` と `agent-harness version` は、Go toolchainが埋め込んだ次の情報をJSONで出力する。
 
@@ -156,7 +149,7 @@ vendor hook invocation
 
 これによりinstalled binaryをsource commit / platformへ照合するための観測点を提供する。ただしbinary自身のself-reportは独立した署名・provenance証明ではない。artifact digest / signature / attestationとの照合が別途必要である。
 
-### CI assurance
+### CI による保証
 
 GitHub Actions `Agent Harness Go` はLinux/macOS双方で次を実行する。
 
@@ -169,7 +162,7 @@ GitHub Actions `Agent Harness Go` はLinux/macOS双方で次を実行する。
 
 GitHub artifact attestationを採用する場合、private repositoryでの利用可否はGitHub planとorganization設定に依存するため、利用可能性を確認してからproduction requirementへ昇格する。attestationが利用できない場合でも、SHA-256、署名、配布経路、installed artifact verificationを別の決定的mechanismで確立する必要がある。
 
-## Credential containment
+## 認証情報の封じ込め
 
 Hookによるdenyはcredential compromise後の外部権限境界の代替ではない。
 
