@@ -1,22 +1,22 @@
-# Go Control-plane Change Guard 実装ノート
+# Go 制御プレーン変更保護 実装ノート
 
 ## 位置づけ
 
-本書は Agent Harness 全体仕様の「公開保護」のうち、制御プレーン変更を実際の公開差分から検出して明示審査へ引き上げる責務を、Go production implementation でどのように具体化したかを記録する。
+本書は Agent Harness 全体仕様の「公開保護」のうち、制御プレーン変更を実際の公開差分から検出して明示審査へ引き上げる責務を、Go による本番実装でどのように具体化したかを記録する。
 
-S4 は保証スライスであり、package 名やツール機能名ではない。Go 実装は `internal/controlplane` に配置し、Publication Guard の後段として接続する。
+S4 は保証スライスであり、パッケージ名やツール機能名ではない。Go 実装は `internal/controlplane` に配置し、公開保護の後段として接続する。
 
 ## 保証契約
 
 Go 実装は次を満たすことを目標とする。
 
-1. S3 Publication Guard が自律 `allow` とした直接 publication だけを S4 の対象にする。
-2. 比較基準にはローカル `origin/main` 等を使わず、fresh Repository Authority が確認した repository と GitHub から直接取得した default branch head を使う。
-3. GitHub default branch head commit がローカル object database に存在することを確認してから差分を評価する。
-4. 実際に公開される `base...HEAD` 差分から protected path を抽出する。
-5. protected path を含む場合は `allow` を `ask` へ引き上げる。
-6. authoritative state、base commit、diff を確立できない場合は `deny` と非0終了にし、unknown Evidence を保持する。
-7. S3 が `ask` / `deny` の操作を S4 が `allow` へ変更しない。
+1. S3 公開保護が自律的に許可した直接公開だけを S4 の対象にする。
+2. 比較基準にはローカル `origin/main` 等を使わず、都度取得したリポジトリ変更権限が確認したリポジトリと、GitHub から直接取得した既定ブランチ先頭を使う。
+3. GitHub の既定ブランチ先頭コミットがローカルオブジェクトデータベースに存在することを確認してから差分を評価する。
+4. 実際に公開される `base...HEAD` 差分から保護対象パスを抽出する。
+5. 保護対象パスを含む場合は許可を承認要求へ引き上げる。
+6. 権威ある状態、ベースコミット、差分を確立できない場合は拒否と非0終了にし、不明の根拠を保持する。
+7. S3 が承認要求 / 拒否した操作を S4 が許可へ変更しない。
 
 ## 実装
 
@@ -24,28 +24,24 @@ Go 実装は次を満たすことを目標とする。
 
 実行順序は trusted runtime で固定する。
 
-```text
-Tool policy
-  ↓
-Repository Authority / Posture
-  ↓
-Publication Guard
-  ├─ deny / ask → return
-  └─ allow
-       ↓
-Control-plane Change Guard
-  ├─ protected diff → ask
-  ├─ evidence unavailable → deny + exit 2
-  └─ clear → allow
+```mermaid
+flowchart TD
+    A[ツールポリシー] --> B[リポジトリの変更権限 / 状態]
+    B --> C{公開保護}
+    C -->|拒否 / 承認要求| D[結果を返す]
+    C -->|許可| E{制御プレーン変更保護}
+    E -->|保護対象の差分| F[承認要求]
+    E -->|根拠を取得不能| G[拒否 + 終了コード 2]
+    E -->|問題なし| H[許可]
 ```
 
-### Authority
+### 権威ある情報
 
 入力に利用する repository identity、current branch、local HEAD、default branch は fresh Repository Authority report に束縛する。
 
 Control-plane Change Guard 自身は GitHub の current default branch head を `BranchHead(repository, defaultBranch)` から再取得する。ローカル remote-tracking ref は authority として使用しない。
 
-### Diff
+### 差分
 
 authoritative base SHA に対して次を実施する。
 
@@ -56,7 +52,7 @@ git diff --name-only <base>...<current-head>
 
 base commit が存在しない場合に fetch を暗黙実行しない。どの network / credential / remote を用いて object を取得するかは別責務であり、S4 の観測処理が勝手に能力を拡張しないためである。
 
-### Protected paths
+### 保護対象パス
 
 初期 contract は Python S4 で検証済みの範囲を起点とし、現在のリポジトリ構成に対して次を保護する。
 
@@ -79,7 +75,7 @@ base commit が存在しない場合に fetch を暗黙実行しない。どの 
 
 この集合は implementation detail ではなく、現時点で制御意味論・vendor wiring・trusted execution・CI/publication/completion behavior を変更し得る既知の path contract である。構成変更で責務が移動した場合は Evolution 対象とする。
 
-## Evidence
+## 根拠
 
 S4 は既存 `PublicationEvidence.Checks` に次の check を追加する。
 
@@ -92,7 +88,7 @@ S4 は既存 `PublicationEvidence.Checks` に次の check を追加する。
 
 `pass` / `fail` / `unknown` を保持する。取得不能を空値や成功へ変換しない。
 
-## Failure semantics
+## 失敗時の意味論
 
 - S3 非 `allow`: S4 は実行しない。
 - Repository Authority が fresh `READY` でない: deny。
@@ -107,7 +103,7 @@ trusted runtime は error を `control-plane-evidence-error` として非0終了
 
 ## 検証
 
-### Unit
+### 単体テスト
 
 `internal/controlplane/guard_test.go`
 
@@ -118,7 +114,7 @@ trusted runtime は error を `control-plane-evidence-error` として非0終了
 - diff failure
 - protected diff の ask 昇格
 
-### Runtime integration
+### 実行時統合テスト
 
 `internal/trustedexec/run_test.go`
 
@@ -130,7 +126,7 @@ trusted runtime は error を `control-plane-evidence-error` として非0終了
 
 GitHub Actions `Agent Harness Go` で Linux / macOS の双方について `go test ./...` と `go build` を実行する。
 
-## Pythonとの差分
+## Python との差分
 
 Python S4 の責務・findings は再利用するが、`gh` subprocess と PATH 上の `git` をそのまま移植しない。Go implementation は S2/S3 と同じ固定 Git / GitHub provider を利用し、runtime pipeline に型付き evaluator として組み込む。
 

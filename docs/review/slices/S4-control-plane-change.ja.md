@@ -1,4 +1,4 @@
-# S4 保証スライス — Control-plane Change Guard
+# S4 保証スライス — 制御プレーン変更保護
 
 ## 主張
 
@@ -12,7 +12,7 @@ Agent Harness が自律公開を許可する場合でも、制御プレーンを
 
 S4 は S3 を置き換えない。S3 が `ask` / `deny` の操作に S4 が追加権限を与えない。
 
-## Authority
+## 権威ある情報
 
 - repository identity: fresh S2 report
 - default branch name: fresh S2 report
@@ -40,13 +40,13 @@ S4 は S3 を置き換えない。S3 が `ask` / `deny` の操作に S4 が追�
 - `internal/trustedexec/run_test.go`
 - `docs/implementation/go/control-plane-change-guard.ja.md`
 
-## Evidence
+## 根拠
 
 S4 は Publication Evidence に、authority取得・base object・diff・protected path 判定の pass / fail / unknown を追加する。
 
 重要なのは「protected path が見つからなかった」という結果ではなく、どの authoritative base とどの publication head の差分に対して判定したかを追跡可能にすることである。
 
-## Failure modes
+## 失敗形態
 
 - GitHub response unavailable / malformed
 - default branch head unknown
