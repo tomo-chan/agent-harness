@@ -1,21 +1,21 @@
 [ツール仕様書](../../spec/agent-harness-spec.ja.md) | [Go 実装ノート](implementation-notes.ja.md) | [Issue #19](https://github.com/tomo-chan/agent-harness/issues/19)
 
-# Go 実装ノート — Repository Authority / Posture
+# Go 実装ノート — リポジトリの変更権限 / 状態
 
 ## 1. 位置づけと範囲
 
-本書は、Agent Harness 全体仕様の Repository Guard を Go で具体化し、S2
-保証スライスで評価するための実装記録である。Repository Authority / Posture は
+本書は、Agent Harness 全体仕様のリポジトリ保護を Go で具体化し、S2
+保証スライスで評価するための実装記録である。リポジトリの変更権限 / 状態は
 ツールアーキテクチャ上の責務名であり、S2 は横断的な保証レビュー軸である。
 `internal/repository` を「S2 package」とは扱わない。
 
 仕様比較は2026-09-12時点のPR #16 HEAD `936e41e`（BH-03監査契約を含む）、Go基線は
 PR #15 HEAD `139dede`、Python比較はPR #7 HEAD `4af4d5b` を対象とする。
 
-本実装は PR #15 の Trusted Runtime / Policy Enforcement に stack し、固定 trusted
-root、単一 binary、厳格 JSON、tool policy / action digest を再利用する。Python PR #7 は
-保証契約と既知の failure mode を比較する reference であり、型、module構成、env、cache、
-`gh` subprocessを逐語移植しない。
+本実装は PR #15 の信頼された実行環境 / ポリシー強制に積み重ね、固定した信頼基点、
+単一バイナリ、厳格な JSON、ツールポリシー / 操作ダイジェストを再利用する。Python PR #7 は
+保証契約と既知の失敗形態を比較する参照実装であり、型、モジュール構成、環境、キャッシュ、
+`gh` 子プロセスを逐語移植しない。
 
 対象は次に限定する。
 
@@ -32,20 +32,17 @@ vendor固有mapping、配布適合は実装しない。
 
 ## 2. 実行経路
 
-```text
-generic hook JSON
-        ↓ strict parse / normalized action
-trusted policy.json
-        ↓ deny > ask > allow
-mutation authority が必要か
-        ├─ no  → tool-policy decision
-        └─ yes
-             ↓ fixed repository-security.json
-             ↓ local Git observation + GitHub current state
-             ↓ repository posture
-             ├─ READY   → original allow / ask
-             ├─ BLOCKED → deny
-             └─ unavailable / malformed → deny + exit 2
+```mermaid
+flowchart TD
+    A[汎用フック JSON] -->|厳格な解析 / 正規化された操作| B[信頼された policy.json]
+    B -->|拒否が承認要求・許可より優先| C{変更権限が必要か}
+    C -->|不要| D[ツールポリシーの判断]
+    C -->|必要| E[固定 repository-security.json]
+    E --> F[ローカル Git の観測 + GitHub の現在状態]
+    F --> G{リポジトリ状態}
+    G -->|READY| H[元の許可 / 承認要求を維持]
+    G -->|BLOCKED| I[拒否]
+    G -->|取得不能 / 不正| J[拒否 + 終了コード 2]
 ```
 
 tool-policy `deny` は repository取得前に確定できる。`allow` と `ask` のmutationは
@@ -57,9 +54,9 @@ commandless tool、追加引数、shell合成、`git branch -D`等のvariantはm
 未知toolのmutationは実対象を証明できないため、本段階ではfail-closedに拒否する。この分類は
 S3のpublication分類ではない。
 
-## 3. Trusted binding
+## 3. 信頼された束縛
 
-### 固定repository policy
+### 固定したリポジトリポリシー
 
 実行fileのsymlink解決後の親と `AGENT_HARNESS_TRUSTED_ROOT` が一致する場合だけ、同じrootの
 固定名 `repository-security.json` を読む。境界外symlink、欠落、directory、不正JSON、
@@ -88,7 +85,7 @@ S3のpublication分類ではない。
 `authority_source` は必須で、次のいずれかをtrusted policyが明示する。runtimeは403等を理由に
 別sourceへfallbackしない。
 
-| source | GitHub endpoint | 保証できる範囲 | 設定制約 |
+| 取得元 | GitHub API | 保証できる範囲 | 設定制約 |
 |---|---|---|---|
 | `github_rules` | `GET /repos/{owner}/{repo}/rules/branches/{branch}` | current branchのeffective rulesとdefault branchのrule types | `require_pull_request`、`block_force_push`、`required_status_checks`を評価可能 |
 | `github_branch_metadata` | `GET /repos/{owner}/{repo}/branches/{branch}` | exact current branchのauthoritative `protected` boolean | 詳細rule要件を証明できないため、3要件をtrusted fileで明示的に`false`にしなければconfigを拒否 |
@@ -136,7 +133,7 @@ Python selectorが非空ならoperator misconfigurationとして起動を拒否�
 requirements、評価結果を差し替えられない。これはtrusted root自体の所有権、read-only mount、
 更新、置換競合を証明しない。
 
-### Local Git と GitHub
+### ローカル Git と GitHub
 
 local observationはPATH探索せず `/usr/bin/git` を直接起動する。継承した `GIT_DIR`、
 `GIT_WORK_TREE`、global/system config、credential helper、fsmonitor、hookを権威入力にしない。
@@ -153,7 +150,7 @@ network/TLS failureはmutation authorityを与えない。LinuxでTLS trust root
 `SSL_CERT_FILE` / `SSL_CERT_DIR` は非空なら起動を拒否する。tokenのtrusted injection、scope、rotation、
 secret isolationは配備側の責務である。
 
-## 4. Posture と mutation authority
+## 4. リポジトリ状態と変更権限
 
 各mutationでcacheを使わず次を新規取得する。
 
@@ -184,11 +181,11 @@ processはexit 2とする。検証済みの不一致や保護不足は `BLOCKED`
 `deny`、exit 0とする。callerは非zero、欠落/不正output、panic、signal、timeoutを拒否として
 扱わなければならない。
 
-### Production repository Evidence（2026-09-12）
+### 本番リポジトリで取得した根拠（2026-09-12）
 
 `tomo-chan/agent-harness`（private repository）でsource可用性を実測した。
 
-| source | 結果 |
+| 取得元 | 結果 |
 |---|---|
 | effective Rules API | HTTP 403（private/free planでは利用不可） |
 | branch-protection詳細API | HTTP 403（private/free planでは利用不可） |
@@ -201,7 +198,7 @@ posture `READY`、decision `allow`、current branch `protected=false`とsource�
 得られた。これはhook判断だけを評価しており、test targetへの書込みやpublicationは実行していない。
 sourceのHTTP 403、metadata欠落、protected branchはtestsでunknown/failからREADYへ変換されない。
 
-## 5. Evidence
+## 5. 根拠
 
 mutationの判断には既存のtool policy / action SHA-256に加え、次を結び付ける。
 
@@ -215,9 +212,9 @@ action digestには検証前の `cwd` も含める。response digestは取得byt
 responseへの独立署名や永続audit storeではない。取得時刻・commit・task identityとの長期的な
 保存と照合は未実装である。
 
-## 6. 仕様 → Go具体化 → S2 Evidence
+## 6. 仕様 → Goによる具体化 → S2 の根拠
 
-| 全体仕様 | Goでの具体化 | 決定的Evidence | 評価 |
+| 全体仕様 | Goによる具体化 | 決定的な根拠 | 評価 |
 |---|---|---|---|
 | TR-01 | 固定trusted rootの `repository-security.json`。legacy selector、repository overlay、cacheを権威から除外 | `TestTrustedPaths`、`TestSingleBinary`、`TestLoadConfigRejectsAmbiguousOrInvalidPolicy` | 配備前提付き部分適合 |
 | RE-01 | local root/per-worktree Git dir/common-dir/branch/targetとtrusted task bindingを照合し、GitHub immutable ID/canonical metadataと明示authority sourceをfresh取得 | `TestAssessReadyUsesFreshLocalAndGitHubEvidence`、`TestAssessReadyWithAvailableGitHubBranchMetadataSource`、production repository E2E | direct file mutation範囲で部分適合 |
@@ -230,7 +227,7 @@ responseへの独立署名や永続audit storeではない。取得時刻・comm
 
 この表はS2全体、実配備、GitHub側強制の適合済み宣言ではない。
 
-## 7. Python S2とのdifferential comparison
+## 7. Python S2との差分比較
 
 | 観点 | Python PR #7 | Go具体化 | 評価 |
 |---|---|---|---|
@@ -247,7 +244,7 @@ Python PR #7のreviewで発見された4件、すなわちcache書込み失敗�
 mutating command variantのread-only誤分類、unknown commandless toolの誤分類、overlayによるtrusted
 identity消失は、Goではcache/overlayを採用せず、read-onlyを正に限定する構造と回帰testで扱う。
 
-## 8. Open Questions / implementation notes
+## 8. 未決事項 / 実装メモ
 
 - Q-01: binary、repository policy、`/usr/bin/git`、OS trust storeの所有権、署名、更新、rollback、失効。
 - Q-02/Q-10: repository policy schema、Evidence field、exit statusは実験契約。version negotiationと移行期間は未確定。
