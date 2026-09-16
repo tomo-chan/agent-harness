@@ -10,48 +10,48 @@ Claude Code / OpenAI Codex / Devin CLI などの自律型ソフトウェア開�
 
 ```mermaid
 flowchart TD
-    A[Instructions / AGENTS.md / Skills] --> B[Agent Runtime]
-    B -->|lifecycle hooks| C[Policy Engine]
-    C -->|allow| D[Permissions / Rules]
-    C -->|ask| E[Approval Gateway]
-    C -->|deny| X[Stop]
+    A[指示 / AGENTS.md / スキル] --> B[エージェント実行環境]
+    B -->|ライフサイクルフック| C[ポリシーエンジン]
+    C -->|許可| D[権限 / 規則]
+    C -->|承認要求| E[承認ゲートウェイ]
+    C -->|拒否| X[停止]
     E --> D
-    D --> F[OS Sandbox]
-    F --> G[Container / Pod]
+    D --> F[OS サンドボックス]
+    F --> G[コンテナ / Pod]
     G --> H[IAM / ソースコード管理システム / クラウドポリシー]
-    H --> I[External Systems]
+    H --> I[外部システム]
 ```
 
 各レイヤーの責務は明確に分離します。
 
 | レイヤー | 主な責務 |
 |---|---|
-| Instructions / Skills | 望ましい振る舞い、作業手順、設計方針 |
-| Hooks / Policy Engine | 文脈依存・ライフサイクル依存のポリシー判断 |
-| Permissions / Rules | コマンド、ツール、パスの静的分類 |
-| Sandbox | ファイルシステム・ネットワークの能力境界 |
-| Container / Pod | プロセス、ホスト、リソースの隔離 |
+| 指示 / スキル | 望ましい振る舞い、作業手順、設計方針 |
+| フック / ポリシーエンジン | 文脈依存・ライフサイクル依存のポリシー判断 |
+| 権限 / 規則 | コマンド、ツール、パスの静的分類 |
+| サンドボックス | ファイルシステム・ネットワークの能力境界 |
+| コンテナ / Pod | プロセス、ホスト、リソースの隔離 |
 | IAM / ソースコード管理システムのポリシー | 外部システムに対する権限と被害範囲の制御 |
-| Completion Gate | 機械検証可能な「完了」の定義 |
-| Telemetry | 監査、障害解析、ポリシーチューニング |
+| 完了ゲート | 機械検証可能な「完了」の定義 |
+| テレメトリー | 監査、障害解析、ポリシーチューニング |
 
 ## 標準的な自律実行フロー
 
 ```mermaid
 flowchart LR
-    T[Task] --> I[リポジトリ調査<br/>read-only]
+    T[タスク] --> I[リポジトリ調査<br/>読み取り専用]
     I --> W{変更が必要?}
-    W -->|はい| B[feature worktree / branch 作成]
+    W -->|はい| B[機能用ワークツリー / ブランチ作成]
     W -->|いいえ| V[結果検証]
     B --> P[計画]
     P --> E[編集]
-    E --> Q[test / lint / type-check]
-    Q --> G[policy / completion gate]
-    G --> C[commit]
-    C --> U[feature branch を push]
+    E --> Q[テスト / リント / 型検査]
+    Q --> G[ポリシー / 完了ゲート]
+    G --> C[コミット]
+    C --> U[機能ブランチを push]
     U --> R[PR 作成]
-    R --> CI[CI / review]
-    CI --> M[保護された server-side merge]
+    R --> CI[CI / レビュー]
+    CI --> M[保護されたサーバー側マージ]
     V --> M
 ```
 
@@ -66,17 +66,17 @@ flowchart LR
 - [セキュリティモデル](docs/ja/03-security-model.md) ([English](docs/03-security-model.md))
 - [導入ガイド](docs/ja/04-adoption-guide.md) ([English](docs/04-adoption-guide.md))
 - [製品マッピング](docs/ja/05-product-mapping.md) ([English](docs/05-product-mapping.md))
-- [`AGENTS.md`](AGENTS.md) — Coding Agent 向け開発指示
-- [`policy_engine.py`](reference/hooks/policy_engine.py) — ベンダー非依存 Policy Engine
-- [`pre_tool_use_adapter.py`](reference/hooks/pre_tool_use_adapter.py) — Hook Adapter 例
+- [`AGENTS.md`](AGENTS.md) — コーディングエージェント向け開発指示
+- [`policy_engine.py`](reference/hooks/policy_engine.py) — ベンダー非依存のポリシーエンジン
+- [`pre_tool_use_adapter.py`](reference/hooks/pre_tool_use_adapter.py) — フックアダプター例
 - [`policy.example.json`](reference/policies/policy.example.json) — ポリシー例
 - [`completion_gate.sh`](reference/scripts/completion_gate.sh) — 完了条件検証
-- [`agent-pod.yaml`](reference/kubernetes/agent-pod.yaml) — Hardening 済み Pod 例
-- [`network-policy.yaml`](reference/kubernetes/network-policy.yaml) — default-deny NetworkPolicy 例
+- [`agent-pod.yaml`](reference/kubernetes/agent-pod.yaml) — 強化済み Pod の例
+- [`network-policy.yaml`](reference/kubernetes/network-policy.yaml) — 既定拒否の NetworkPolicy 例
 
 ## 非目標
 
-このプロジェクトは、Prompt、[AGENTS.md](AGENTS.md)、CLAUDE.md、Skills、モデルの推論そのものをセキュリティ機構にすることを目的としていません。これらは有効な行動制御ですが、秘密情報、production 環境、protected branch を守るための最終的な強制境界ではありません。
+このプロジェクトは、プロンプト、[AGENTS.md](AGENTS.md)、CLAUDE.md、スキル、モデルの推論そのものをセキュリティ機構にすることを目的としていません。これらは有効な行動制御ですが、秘密情報、本番環境、保護ブランチを守るための最終的な強制境界ではありません。
 
 ## 基本原則
 

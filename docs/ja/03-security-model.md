@@ -6,91 +6,91 @@
 
 エージェントが以下に遭遇する前提で設計します。
 
-- source code、issue、Web page、documentation、tool output に埋め込まれた悪意ある指示
-- hallucination や破壊的 command
-- dependency install script や compromised package
-- credential の誤露出
-- malicious / over-privileged MCP tool
-- repository / worktree / branch の誤選択
-- runaway retry loop
-- compromised hook / policy code
-- cloud metadata や internal control-plane endpoint へのアクセス試行
+- ソースコード、Issue、Web ページ、文書、ツール出力に埋め込まれた悪意ある指示
+- 幻覚や破壊的なコマンド
+- 依存関係の導入スクリプトや侵害されたパッケージ
+- 認証情報の誤露出
+- 悪意がある、または過大な権限を持つ MCP ツール
+- リポジトリ / ワークツリー / ブランチの誤選択
+- 暴走する再試行ループ
+- 侵害されたフック / ポリシーコード
+- クラウドメタデータや内部の制御プレーン接続先へのアクセス試行
 
-## Defense in Depth
+## 多層防御
 
 ```mermaid
 flowchart TD
-    M[Model behavior] --> H[Semantic policy / hooks<br/>文脈依存の危険を検出]
-    H --> P[Permissions / rules<br/>通常操作の authority を制限]
-    P --> S[OS sandbox<br/>filesystem / network capability を制限]
-    S --> C[Pod / container isolation<br/>host / peer workload を保護]
-    C --> N[Network enforcement<br/>destination / protocol を制限]
+    M[モデルの振る舞い] --> H[意味論的ポリシー / フック<br/>文脈依存の危険を検出]
+    H --> P[権限 / 規則<br/>通常操作の権限を制限]
+    P --> S[OS サンドボックス<br/>ファイルシステム / ネットワーク能力を制限]
+    S --> C[Pod / コンテナ分離<br/>ホスト / 他ワークロードを保護]
+    C --> N[ネットワーク強制<br/>宛先 / プロトコルを制限]
     N --> I[IAM / ソースコード管理システムによる認可<br/>外部権限を制限]
-    I --> R[Server-side protections<br/>critical resource を最終防御]
+    I --> R[サーバー側保護<br/>重要資源を最終防御]
 ```
 
-単一レイヤーで全 failure mode を防ぐことは想定しません。各境界の責務は [リファレンスアーキテクチャ](01-architecture.md) を参照してください。
+単一レイヤーですべての失敗形態を防ぐことは想定しません。各境界の責務は [リファレンスアーキテクチャ](01-architecture.md) を参照してください。
 
-## Trusted Computing Base
+## 信頼されたコンピューティング基盤
 
-TCB は小さく保ちます。少なくとも Orchestrator、Policy Engine、Sandbox Implementation、Workload Isolation、Credential Broker、External Authorization System が含まれます。Agent-generated code と model reasoning は trusted component ではありません。
+TCB は小さく保ちます。少なくともオーケストレーター、ポリシーエンジン、サンドボックス実装、ワークロード分離、認証情報仲介、外部認可システムが含まれます。エージェント生成コードとモデルの推論は信頼されたコンポーネントではありません。
 
-## Credential
+## 認証情報
 
-Workload Identity と short-lived credential を優先します。広範な personal credential を agent home directory に mount しません。可能であれば、通常の filesystem read から credential を分離し、必要な process / proxy にだけ渡します。
+ワークロードアイデンティティと短期認証情報を優先します。広範な個人認証情報をエージェントのホームディレクトリにマウントしません。可能であれば、通常のファイルシステム読み取りから認証情報を分離し、必要なプロセス / プロキシにだけ渡します。
 
-Repository credential は対象 repository と必要操作だけに scope します。Production credential は通常、coding-agent Pod に存在させるべきではありません。
+リポジトリ認証情報は対象リポジトリと必要操作だけに限定します。本番認証情報は通常、コーディングエージェントの Pod に存在させるべきではありません。
 
-## Network
+## ネットワーク
 
-Agent Runtime の外側にある network control を hard boundary とします。
+エージェント実行環境の外側にあるネットワーク制御を強制境界とします。
 
 ```mermaid
 flowchart LR
     A[Agent Pod] --> N[NetworkPolicy]
     N --> E[Controlled egress proxy / gateway]
-    E --> S[Allowlisted services]
+    E --> S[許可リスト登録済みサービス]
 ```
 
-Cloud metadata endpoint、cluster administration endpoint、無関係な internal network は遮断します。Agent 内蔵の domain filtering は defense in depth として利用し、唯一の network boundary にはしません。実装例は [`network-policy.yaml`](../../reference/kubernetes/network-policy.yaml) を参照してください。
+クラウドメタデータ接続先、クラスタ管理接続先、無関係な内部ネットワークは遮断します。エージェント内蔵のドメインフィルタリングは多層防御として利用し、唯一のネットワーク境界にはしません。実装例は [`network-policy.yaml`](../../reference/kubernetes/network-policy.yaml) を参照してください。
 
-## MCP / External Tool
+## MCP / 外部ツール
 
-MCP は Agent の authority を拡張するため、Threat Model に含めます。次の組み合わせを推奨します。
+MCP はエージェントの権限を拡張するため、脅威モデルに含めます。次の組み合わせを推奨します。
 
-1. MCP tool permission / rule
-2. semantic PreToolUse policy
-3. MCP server authentication / authorization
-4. least-privilege service account / IAM
-5. audit logging
+1. MCP ツールの権限 / 規則
+2. 意味論的な PreToolUse ポリシー
+3. MCP サーバーの認証 / 認可
+4. 最小権限のサービスアカウント / IAM
+5. 監査ログ
 
-Production data へのアクセスには read-only service account を優先します。Generic administrative MCP tool を autonomous session に公開することは避けます。
+本番データへのアクセスには読み取り専用サービスアカウントを優先します。汎用管理 MCP ツールを自律セッションに公開することは避けます。
 
 ## Git / ソースコード管理システム
 
-`status`、`diff`、`log`、feature branch の commit / push、PR creation などの通常操作は許可しやすくします。一方、force push、protected branch mutation、tag/release creation、workflow modification、merge などは deny または approval 対象にします。サンプル分類は [`policy.example.json`](../../reference/policies/policy.example.json) を参照してください。
+`status`、`diff`、`log`、機能ブランチのコミット / push、PR 作成などの通常操作は許可しやすくします。一方、強制 push、保護ブランチ変更、タグ / リリース作成、ワークフロー変更、マージなどは拒否または承認対象にします。サンプル分類は [`policy.example.json`](../../reference/policies/policy.example.json) を参照してください。
 
 最終的な権威はソースコード管理システムのサーバー側規則です。エージェントの認証情報が規則セットやブランチ保護を迂回できてはいけません。
 
-## Hook Failure Semantics
+## フック失敗時の意味論
 
-Hook は semantic policy に有効ですが、failure behavior は製品や version によって異なります。Hook timeout / crash / malformed output 後に execution が継続する可能性がある場合、その Hook は fail-open として扱います。Hard invariant は Hook 不在でも有効な Sandbox、IAM、Server-side Control で守ります。
+フックは意味論的ポリシーに有効ですが、失敗時の動作は製品やバージョンによって異なります。フックのタイムアウト / 異常終了 / 不正出力後に実行が継続する可能性がある場合、そのフックはフェイルオープンとして扱います。重要な不変条件は、フック不在でも有効なサンドボックス、IAM、サーバー側制御で守ります。
 
-## Audit
+## 監査
 
 最低限、以下を記録します。
 
-- task/session/turn identifiers
-- model/runtime/version
-- policy version
-- tool/action と normalized target
-- allow/deny/ask decision と reason
-- approval actor/scope/expiry
-- execution outcome
-- commit/PR/CI identifiers
-- sandbox/network denial
+- タスク / セッション / ターンの識別情報
+- モデル / 実行環境 / バージョン
+- ポリシーバージョン
+- ツール / 操作と正規化された対象
+- 許可 / 拒否 / 承認要求の判断と理由
+- 承認主体 / 適用範囲 / 有効期限
+- 実行結果
+- コミット / PR / CI の識別情報
+- サンドボックス / ネットワークによる拒否
 
-Raw secret はログに記録しません。OTel や集中分析基盤に流せる structured event を推奨します。
+生の秘密情報はログに記録しません。OTel や集中分析基盤に送れる構造化イベントを推奨します。
 
 ---
 

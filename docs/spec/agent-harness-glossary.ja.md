@@ -1,14 +1,14 @@
 [README](../../README.ja.md) | [ツール仕様書](agent-harness-spec.ja.md) | [RAEM](../../raem/refinement-assurance-and-evolution-model.ja.md)
 
-# Agent Harness 用語集（Agent Harness Glossary）
+# Agent Harness 用語集
 
-## 1. 文書の位置づけ（Document Scope）
+## 1. 文書の位置づけ
 
 本書は、Agent Harness の仕様、具体実装、保証スライスで共有する用語を定義する。製品固有の名称と同じ語がある場合も、本書の定義を共通契約上の基準とする。
 
 用語の定義は概念の意味を固定するものであり、特定の Go / Python の型、パッケージ、CLI フィールドや、特定ベンダーのスキーマを指定しない。振る舞いの規範的な要求は[ツール仕様書](agent-harness-spec.ja.md)、保証主張と根拠は各保証スライスで定義する。
 
-## 2. 用語（Terms）
+## 2. 用語
 
 | 日本語 | 英語・表記 | 本書での意味 |
 |---|---|---|
