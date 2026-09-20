@@ -17,6 +17,10 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
+      release_pr_created: ${{ steps.release.outputs.prs_created }}
+      release_pr_head: ${{ steps.release-pr.outputs.head_branch }}
+      release_pr_number: ${{ steps.release-pr.outputs.number }}
+      release_pr_sha: ${{ steps.release-pr.outputs.sha }}
     steps:
       - uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4
         id: release
@@ -24,6 +28,40 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - name: Capture release PR identity
+        id: release-pr
+        if: steps.release.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
+        run: |
+          head_branch="$(jq -er '.headBranchName' <<<"$RELEASE_PR")"
+          number="$(jq -er '.number' <<<"$RELEASE_PR")"
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number")"
+          test "$(jq -er '.head.ref' <<<"$pr")" = "$head_branch"
+          sha="$(jq -er '.head.sha' <<<"$pr")"
+          printf 'head_branch=%s\nnumber=%s\nsha=%s\n' "$head_branch" "$number" "$sha" >>"$GITHUB_OUTPUT"
+
+  release-pr-checks:
+    needs: release-please
+    if: needs.release-please.outputs.release_pr_created == 'true'
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch checks for release PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PR_HEAD: ${{ needs.release-please.outputs.release_pr_head }}
+          RELEASE_PR_NUMBER: ${{ needs.release-please.outputs.release_pr_number }}
+          RELEASE_PR_SHA: ${{ needs.release-please.outputs.release_pr_sha }}
+        run: |
+          actual_sha="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$RELEASE_PR_NUMBER" --jq '.head.sha')"
+          test "$actual_sha" = "$RELEASE_PR_SHA"
+          gh workflow run go.yml --ref "$RELEASE_PR_HEAD"
 
   goreleaser:
     needs: release-please

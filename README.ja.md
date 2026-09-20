@@ -70,9 +70,10 @@ GitHub の draft release には、Linux / macOS の amd64 / arm64 向け
 リリースは保護ブランチの運用と分離せず、次の順序で進みます。
 
 1. `main` にマージされた Conventional Commits を Release Please がリリース PR に集約する。
-2. リリース PR のマージによって version tag と draft GitHub release を作成する。
-3. GoReleaser が Go の全保証 suite を実行し、全対象向けアーカイブと checksum manifest を draft に添付する。
-4. maintainer が draft の内容を確認し、明示的に公開する。
+2. `GITHUB_TOKEN` で作成した PR からworkflowが再帰的に起動されないGitHubの制約を補うため、生成PRのheadに対して通常CIを明示的にdispatchする。
+3. 全チェックを通過したリリース PR のマージによって version tag と draft GitHub release を作成する。
+4. GoReleaser が Go の全保証 suite を実行し、全対象向けアーカイブと checksum manifest を draft に添付する。
+5. maintainer が draft の内容を確認し、明示的に公開する。
 
 Pull request の CI でも GoReleaser snapshot を生成して artifact として保存するため、
 packaging 設定、埋め込み build identity、checksum manifest はリリース用 commit が

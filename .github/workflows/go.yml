@@ -3,6 +3,7 @@ name: Agent Harness Go
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -70,9 +70,10 @@ source commit, build date, Go version and target platform.
 The release workflow follows the repository's protected-branch model:
 
 1. Conventional commits merged to `main` are collected into an automated Release Please PR.
-2. Merging that PR creates a version tag and a draft GitHub release.
-3. GoReleaser runs the complete Go assurance suite, builds all supported targets and attaches the archives and checksum manifest.
-4. A maintainer reviews the draft and publishes it explicitly.
+2. The release workflow explicitly dispatches the normal CI workflow for the generated PR head, because GitHub does not recursively trigger workflows for PRs created with `GITHUB_TOKEN`.
+3. Merging the fully checked release PR creates a version tag and a draft GitHub release.
+4. GoReleaser runs the complete Go assurance suite, builds all supported targets and attaches the archives and checksum manifest.
+5. A maintainer reviews the draft and publishes it explicitly.
 
 Pull requests also build a GoReleaser snapshot and upload it as a CI artifact,
 so the packaging configuration, embedded build identity and checksum manifest

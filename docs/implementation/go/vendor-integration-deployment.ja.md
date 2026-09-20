@@ -171,12 +171,14 @@ snapshotを含むこれらの検証はsource-level / runtime / packaging assuran
 `tomo-chan/panemux` の運用を基線として、Release PleaseとGoReleaserを分離して接続する。
 
 1. `main` pushでRelease PleaseがConventional Commitsをversion / changelogへ変換し、release PRを管理する。
-2. release PRのmergeで`v` prefixのtagとdraft GitHub releaseを作成する。
-3. release作成時だけGoReleaserを起動し、全Go assurance gateの成功後に4 platform archiveとSHA-256 manifestを既存draftへ添付する。
-4. GitHub releaseの公開はmaintainerによる明示操作とし、workflowはdraftを自動公開しない。
+2. `GITHUB_TOKEN`によるPR作成・更新は`pull_request` workflowを再帰起動しないため、action outputのPR番号・head branch・head SHAを照合し、そのheadへ通常CIを`workflow_dispatch`する。
+3. 全チェックを通過したrelease PRのmergeで`v` prefixのtagとdraft GitHub releaseを作成する。
+4. release作成時だけGoReleaserを起動し、全Go assurance gateの成功後に4 platform archiveとSHA-256 manifestを既存draftへ添付する。
+5. GitHub releaseの公開はmaintainerによる明示操作とし、workflowはdraftを自動公開しない。
 
 Workflow actionはcommit SHAで固定し、通常CIは`contents: read`、Release Please jobは
-`contents: write` / `pull-requests: write`、GoReleaser jobは`contents: write`だけを持つ。
+`contents: write` / `pull-requests: write`、CI dispatch jobは`actions: write`と読取権限、
+GoReleaser jobは`contents: write`だけを持つ。
 リリース用credentialはGitHub Actionsのjob-scoped `GITHUB_TOKEN`に限定し、repositoryへ保存しない。
 
 Release Pleaseによるtag / draft作成とGoReleaserのasset uploadは別の外部副作用である。

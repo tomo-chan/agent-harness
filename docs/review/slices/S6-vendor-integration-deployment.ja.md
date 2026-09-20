@@ -44,6 +44,8 @@ CIはLinux/macOSを独立に評価し、unit/race/vet/buildに加えてdistribut
 
 macOSではtemporary directoryの`/var/...`がcanonical pathとして`/private/var/...`へ解決される。trusted path実装は正規化済みpathを返していたが、初期testが非正規化pathとの文字列一致を要求して失敗した。実装の信頼境界を弱めず、test側をcanonical path比較へ修正した。このfindingをcross-platform trusted-path regressionとして保持する。
 
+Release Pleaseがjob-scoped `GITHUB_TOKEN`で作成・更新するrelease PRは、GitHubの再帰実行防止により`pull_request` workflowを自動起動しない。これはrelease PRにもLinux/macOSとdistribution snapshotのEvidenceを要求する設計に対する実装エラーと分類した。release actionが返すPR番号・branchをGitHub APIのfresh head SHAと照合し、`workflow_dispatch`で同じCIを明示起動する回帰防止を追加した。長期PATを追加せず、dispatch jobだけに`actions: write`を限定する。
+
 ## 収束条件
 
 - Claude/Codexの公開vendor contractとmappingが対応している。
