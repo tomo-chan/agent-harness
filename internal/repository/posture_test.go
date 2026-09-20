@@ -157,7 +157,7 @@ func TestAssessCompletionAllowsReadOnlyDefaultBranchObservation(t *testing.T) {
 	root, config, git, github := readyInputs(t)
 	config.ExpectedBranch = "main"
 	git["rev-parse --abbrev-ref HEAD"] = "main"
-	report, err := AssessCompletion(context.Background(), policy.Action{Tool: "Stop", CWD: root}, config, git, github, time.Unix(1_000, 0))
+	report, err := AssessCompletion(context.Background(), root, config, git, github, time.Unix(1_000, 0))
 	if err != nil || report.State != "READY" || report.Branch != "main" || report.MutationTarget != "" {
 		t.Fatalf("report=%+v err=%v", report, err)
 	}
