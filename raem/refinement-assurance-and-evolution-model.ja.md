@@ -828,26 +828,13 @@ AIエージェントまたは人間が非決定的な探索によって得た仮
 
 例えば、
 
-```text
-抽象要求:
-外部SCMの最終強制権限は
-AIエージェントから独立していること
-
-    ↓
-
-能力要求:
-サーバー側で保護ブランチへの
-直接変更を拒否できること
-
-    ↓
-
-具体的実現:
-GitHub Rulesets
-
-    ↓
-
-期待する根拠:
-対象ブランチへ有効なRuleset
+```mermaid
+flowchart TD
+    A["抽象要求<br/>外部のソースコード管理システムの最終強制権限は<br/>AIエージェントから独立していること"]
+    B["能力要求<br/>サーバー側で保護ブランチへの<br/>直接変更を拒否できること"]
+    C["具体的実現<br/>GitHub ルールセット"]
+    D["期待する根拠<br/>対象ブランチに有効なルールセット"]
+    A --> B --> C --> D
 ```
 
 という形で具体化する。
@@ -891,7 +878,7 @@ GitHub Rulesets
 - ポリシー実装
 - コンテナ設定
 - Kubernetes securityContext
-- SCM側Ruleset
+- ソースコード管理システム側のRuleset
 - IAM
 - CI required checks
 - 実行時のリポジトリ識別情報
@@ -1367,7 +1354,7 @@ RAEM
     ↓
 具体的なAgent Harness
     ↓
-Claude Code / Codex / Devin / SCM / Runtime
+Claude Code / Codex / Devin / ソースコード管理システム / 実行環境
 ```
 
 という関係になる。

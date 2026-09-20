@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository defines a vendor-neutral reference architecture and implementation for secure autonomous software-engineering agents. Changes should preserve the central security model: the LLM is not a security boundary. Policy, sandboxing, workload isolation, network controls, IAM/SCM authorization, and deterministic completion checks must remain independent enforcement layers.
+This repository defines a vendor-neutral reference architecture and implementation for secure autonomous software-engineering agents. Changes should preserve the central security model: the LLM is not a security boundary. Policy, sandboxing, workload isolation, network controls, IAM and source code management authorization, and deterministic completion checks must remain independent enforcement layers.
 
 ## Read first
 
@@ -23,7 +23,7 @@ Do not weaken these invariants without an explicit architectural decision:
 - Hooks provide semantic/lifecycle policy but are not the sole enforcement mechanism for critical security invariants.
 - The OS sandbox constrains filesystem/network capability independently of model behavior.
 - Container/Pod isolation protects the host and other workloads independently of the agent sandbox.
-- IAM, SCM rulesets, branch protection, and server-side authorization are authoritative for external systems.
+- IAM, source code management rulesets, branch protection, and server-side authorization are authoritative for external systems.
 - Autonomous agents must use least-privilege, preferably short-lived credentials.
 - Direct mutation of protected/default branches must not be part of the normal autonomous path.
 - Production-impacting operations require an explicitly designed authorization path; do not add broad production credentials to coding-agent workers.

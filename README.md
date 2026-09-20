@@ -18,7 +18,7 @@ flowchart TD
     E --> D
     D --> F[OS Sandbox]
     F --> G[Container / Pod]
-    G --> H[IAM / SCM / Cloud Policy]
+    G --> H[IAM / Source Code Management / Cloud Policy]
     H --> I[External Systems]
 ```
 
@@ -31,7 +31,7 @@ The layers have deliberately different responsibilities:
 | Permissions / Rules | Static command, tool and path classification |
 | Sandbox | Filesystem and network capability boundary |
 | Container / Pod | Process, host and resource isolation |
-| IAM / SCM policy | External authority and blast-radius containment |
+| IAM / source code management policy | External authority and blast-radius containment |
 | Completion Gate | Machine-verifiable definition of done |
 | Telemetry | Audit, incident analysis and policy tuning |
 
@@ -59,6 +59,8 @@ The agent should normally be able to perform routine work without human interact
 
 ## Repository layout
 
+- [Agent Harness Tool Specification (Japanese draft)](docs/spec/agent-harness-spec.ja.md) — contracts and open questions independent of implementation language and assurance slices
+- [Agent Harness Glossary (Japanese)](docs/spec/agent-harness-glossary.ja.md) — shared terminology for the specification, implementations, and assurance work
 - [Architecture](docs/01-architecture.md) ([日本語](docs/ja/01-architecture.md)) — logical and deployment architecture
 - [Design Principles](docs/02-design-principles.md) ([日本語](docs/ja/02-design-principles.md)) — design principles and responsibility boundaries
 - [Security Model](docs/03-security-model.md) ([日本語](docs/ja/03-security-model.md)) — threat model and defense-in-depth controls
