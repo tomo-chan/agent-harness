@@ -214,6 +214,20 @@ func (r Report) Summary() string {
 // partially populated report preserves unknown evidence for diagnostics. A
 // caller must not allow mutation unless err is nil and State is READY.
 func Assess(ctx context.Context, action policy.Action, config *Config, git Git, github GitHub, now time.Time) (Report, error) {
+	return assess(ctx, action, config, git, github, now, false)
+}
+
+// AssessPublication establishes fresh Repository Authority / Posture for a
+// Publication Guard candidate without pretending that a shell command has a
+// direct-file mutation target. It does not classify or authorize publication:
+// callers must apply a fail-closed Publication Guard to the same action and
+// report before using READY. This narrow handoff avoids duplicating repository
+// identity and protection logic in the publication layer.
+func AssessPublication(ctx context.Context, action policy.Action, config *Config, git Git, github GitHub, now time.Time) (Report, error) {
+	return assess(ctx, action, config, git, github, now, true)
+}
+
+func assess(ctx context.Context, action policy.Action, config *Config, git Git, github GitHub, now time.Time, publication bool) (Report, error) {
 	report := Report{
 		State:    "READY",
 		Evidence: Evidence{CheckedAt: now.UTC().Format(time.RFC3339Nano)},
@@ -268,17 +282,21 @@ func Assess(ctx context.Context, action policy.Action, config *Config, git Git, 
 		return report, nil
 	}
 	report.add("worktree_binding", "pass", expectedRoot)
-	target, targetProblem, targetErr := resolveMutationTarget(action, canonicalCWD, root)
-	report.MutationTarget = target
-	if targetErr != nil {
-		report.add("mutation_target", "unknown", targetProblem)
-		return report, targetErr
+	if publication {
+		report.add("publication_handoff", "pass", "publication target semantics delegated to Publication Guard")
+	} else {
+		target, targetProblem, targetErr := resolveMutationTarget(action, canonicalCWD, root)
+		report.MutationTarget = target
+		if targetErr != nil {
+			report.add("mutation_target", "unknown", targetProblem)
+			return report, targetErr
+		}
+		if targetProblem != "" {
+			report.add("mutation_target", "fail", targetProblem)
+			return report, nil
+		}
+		report.add("mutation_target", "pass", target)
 	}
-	if targetProblem != "" {
-		report.add("mutation_target", "fail", targetProblem)
-		return report, nil
-	}
-	report.add("mutation_target", "pass", target)
 
 	remote, err := git.Run(ctx, canonicalCWD, "config", "--local", "--no-includes", "--get", "remote.origin.url")
 	if err != nil {

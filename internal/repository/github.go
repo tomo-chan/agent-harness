@@ -169,6 +169,35 @@ func (c *APIClient) Branch(ctx context.Context, name, branch string) (BranchMeta
 	return BranchMetadata{Name: response.Name, Protected: *response.Protected}, digest, nil
 }
 
+// BranchHead returns the exact GitHub branch ref and its commit object ID for
+// Publication Guard. The repository name comes from fresh Repository
+// Authority evidence, while this method independently fails closed on a
+// missing ref, a symbolic/non-commit object, or malformed identity.
+func (c *APIClient) BranchHead(ctx context.Context, name, branch string) (string, string, error) {
+	path, err := repositoryPath(name)
+	if err != nil {
+		return "", "", err
+	}
+	if !validBranch(branch) {
+		return "", "", fmt.Errorf("invalid branch identity")
+	}
+	var response struct {
+		Ref    string `json:"ref"`
+		Object struct {
+			Type string `json:"type"`
+			SHA  string `json:"sha"`
+		} `json:"object"`
+	}
+	digest, err := c.get(ctx, path+"/git/ref/heads/"+url.PathEscape(branch), &response)
+	if err != nil {
+		return "", "", err
+	}
+	if response.Ref != "refs/heads/"+branch || response.Object.Type != "commit" || !validGitObjectID(response.Object.SHA) {
+		return "", "", fmt.Errorf("GitHub branch ref omitted or mismatched required commit identity")
+	}
+	return response.Object.SHA, digest, nil
+}
+
 // EffectiveRuleTypes gets the current rule types GitHub reports as applying to
 // the named branch. It does not infer rules from repository-controlled files.
 func (c *APIClient) EffectiveRuleTypes(ctx context.Context, name, branch string) (map[string]bool, string, error) {

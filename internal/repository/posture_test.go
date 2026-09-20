@@ -132,6 +132,27 @@ func TestAssessReadyUsesFreshLocalAndGitHubEvidence(t *testing.T) {
 	}
 }
 
+func TestAssessPublicationReusesRepositoryAuthorityWithoutDirectFileTarget(t *testing.T) {
+	root, config, git, github := readyInputs(t)
+	action := policy.Action{
+		Tool: "exec", CWD: root,
+		Input: map[string]any{"command": "git push origin HEAD:refs/heads/feature/task"},
+	}
+	report, err := AssessPublication(context.Background(), action, config, git, github, time.Unix(1_000, 0))
+	if err != nil || report.State != "READY" || report.MutationTarget != "" {
+		t.Fatalf("report=%+v err=%v", report, err)
+	}
+	foundHandoff := false
+	for _, check := range report.Checks {
+		if check.Name == "publication_handoff" && check.Status == "pass" {
+			foundHandoff = true
+		}
+	}
+	if !foundHandoff {
+		t.Fatalf("publication handoff evidence missing: %+v", report.Checks)
+	}
+}
+
 func TestAssessReadyWithAvailableGitHubBranchMetadataSource(t *testing.T) {
 	root, config, git, github := readyInputs(t)
 	config.AuthoritySource = AuthoritySourceGitHubBranchMetadata
@@ -250,6 +271,16 @@ func TestAssessBindsAnActualLinkedWorktree(t *testing.T) {
 	report, err := Assess(context.Background(), action, config, git, github, time.Unix(1_000, 0))
 	if err != nil || report.State != "READY" || !report.LinkedWorktree {
 		t.Fatalf("report=%+v err=%v", report, err)
+	}
+	publicationAction := policy.Action{
+		Tool: "exec", CWD: worktree,
+		Input: map[string]any{"command": "git push origin HEAD:refs/heads/feature/task"},
+	}
+	publicationReport, err := AssessPublication(
+		context.Background(), publicationAction, config, git, github, time.Unix(1_001, 0),
+	)
+	if err != nil || publicationReport.State != "READY" || !publicationReport.LinkedWorktree || publicationReport.MutationTarget != "" {
+		t.Fatalf("publication report=%+v err=%v", publicationReport, err)
 	}
 }
 

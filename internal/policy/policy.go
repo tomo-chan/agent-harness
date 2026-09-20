@@ -24,10 +24,11 @@ type Decision struct {
 // for a decision. Repository is populated only when mutation authority requires
 // fresh repository and GitHub evaluation.
 type Evidence struct {
-	PolicySHA256 string              `json:"policy_sha256"`
-	ActionSHA256 string              `json:"action_sha256"`
-	Evaluator    string              `json:"evaluator"`
-	Repository   *RepositoryEvidence `json:"repository,omitempty"`
+	PolicySHA256 string               `json:"policy_sha256"`
+	ActionSHA256 string               `json:"action_sha256"`
+	Evaluator    string               `json:"evaluator"`
+	Repository   *RepositoryEvidence  `json:"repository,omitempty"`
+	Publication  *PublicationEvidence `json:"publication,omitempty"`
 }
 
 // RepositoryEvidence binds a decision to the trusted repository policy and
@@ -55,6 +56,35 @@ type RepositoryEvidence struct {
 // RepositoryCheckEvidence retains pass/fail/unknown without converting missing
 // authoritative state into success.
 type RepositoryCheckEvidence struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+}
+
+// PublicationEvidence binds a decision to the concrete publication meaning
+// checked after Repository Authority / Posture succeeds. Empty fields mean the
+// fact was not applicable or could not be established; callers must use Checks
+// and the decision rather than interpreting an empty value as success.
+type PublicationEvidence struct {
+	Kind                string                     `json:"kind"`
+	Repository          string                     `json:"repository"`
+	Branch              string                     `json:"branch"`
+	LocalHeadSHA        string                     `json:"local_head_sha"`
+	DefaultBranch       string                     `json:"default_branch"`
+	Remote              string                     `json:"remote,omitempty"`
+	PushURL             string                     `json:"push_url,omitempty"`
+	Refspec             string                     `json:"refspec,omitempty"`
+	Upstream            string                     `json:"upstream,omitempty"`
+	PullRequestBase     string                     `json:"pull_request_base,omitempty"`
+	GitHubBranchHeadSHA string                     `json:"github_branch_head_sha,omitempty"`
+	GitHubBranchSHA256  string                     `json:"github_branch_sha256,omitempty"`
+	CheckedAt           string                     `json:"checked_at"`
+	Checks              []PublicationCheckEvidence `json:"checks"`
+}
+
+// PublicationCheckEvidence retains publication-specific pass, fail, and
+// unknown facts. Unknown never authorizes publication.
+type PublicationCheckEvidence struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
 	Detail string `json:"detail"`
