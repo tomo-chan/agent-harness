@@ -214,7 +214,7 @@ func (r Report) Summary() string {
 // partially populated report preserves unknown evidence for diagnostics. A
 // caller must not allow mutation unless err is nil and State is READY.
 func Assess(ctx context.Context, action policy.Action, config *Config, git Git, github GitHub, now time.Time) (Report, error) {
-	return assess(ctx, action, config, git, github, now, false)
+	return assess(ctx, action, config, git, github, now, assessmentMutation)
 }
 
 // AssessPublication establishes fresh Repository Authority / Posture for a
@@ -224,10 +224,18 @@ func Assess(ctx context.Context, action policy.Action, config *Config, git Git, 
 // report before using READY. This narrow handoff avoids duplicating repository
 // identity and protection logic in the publication layer.
 func AssessPublication(ctx context.Context, action policy.Action, config *Config, git Git, github GitHub, now time.Time) (Report, error) {
-	return assess(ctx, action, config, git, github, now, true)
+	return assess(ctx, action, config, git, github, now, assessmentPublication)
 }
 
-func assess(ctx context.Context, action policy.Action, config *Config, git Git, github GitHub, now time.Time, publication bool) (Report, error) {
+type assessmentMode int
+
+const (
+	assessmentMutation assessmentMode = iota
+	assessmentPublication
+	assessmentCompletion
+)
+
+func assess(ctx context.Context, action policy.Action, config *Config, git Git, github GitHub, now time.Time, mode assessmentMode) (Report, error) {
 	report := Report{
 		State:    "READY",
 		Evidence: Evidence{CheckedAt: now.UTC().Format(time.RFC3339Nano)},
@@ -282,9 +290,12 @@ func assess(ctx context.Context, action policy.Action, config *Config, git Git, 
 		return report, nil
 	}
 	report.add("worktree_binding", "pass", expectedRoot)
-	if publication {
+	switch mode {
+	case assessmentPublication:
 		report.add("publication_handoff", "pass", "publication target semantics delegated to Publication Guard")
-	} else {
+	case assessmentCompletion:
+		report.add("completion_handoff", "pass", "read-only completion observation does not grant mutation authority")
+	default:
 		target, targetProblem, targetErr := resolveMutationTarget(action, canonicalCWD, root)
 		report.MutationTarget = target
 		if targetErr != nil {
@@ -406,7 +417,9 @@ func assess(ctx context.Context, action policy.Action, config *Config, git Git, 
 	} else {
 		report.add("repository_active", "pass", "repository is active")
 	}
-	if branch == metadata.DefaultBranch {
+	if mode == assessmentCompletion && branch != "HEAD" && branch != "" {
+		report.add("default_branch", "pass", "read-only completion observation does not authorize direct mutation")
+	} else if branch == metadata.DefaultBranch {
 		report.add("default_branch", "fail", "direct mutation of the default branch is prohibited")
 	} else if branch == "HEAD" || branch == "" {
 		report.add("default_branch", "fail", "detached HEAD cannot be compared safely")
@@ -424,7 +437,9 @@ func assess(ctx context.Context, action policy.Action, config *Config, git Git, 
 			return report, err
 		}
 		report.Evidence.GitHubCurrentAuthoritySHA256 = currentRulesDigest
-		if len(currentRules) != 0 {
+		if mode == assessmentCompletion {
+			report.add("protected_branch", "pass", "branch protection observed for read-only completion")
+		} else if len(currentRules) != 0 {
 			report.add("protected_branch", "fail", "current branch has effective GitHub rules")
 		} else {
 			report.add("protected_branch", "pass", "current branch has no effective GitHub rules")
@@ -474,7 +489,9 @@ func assess(ctx context.Context, action policy.Action, config *Config, git Git, 
 		} else {
 			report.add("current_branch_metadata", "pass", currentBranch.Name)
 		}
-		if currentBranch.Protected {
+		if mode == assessmentCompletion {
+			report.add("protected_branch", "pass", "branch protection observed for read-only completion")
+		} else if currentBranch.Protected {
 			report.add("protected_branch", "fail", "current branch is protected in GitHub branch metadata")
 		} else {
 			report.add("protected_branch", "pass", "current branch is not protected in GitHub branch metadata")
