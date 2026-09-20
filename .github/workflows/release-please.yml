@@ -61,7 +61,7 @@ jobs:
         run: |
           actual_sha="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$RELEASE_PR_NUMBER" --jq '.head.sha')"
           test "$actual_sha" = "$RELEASE_PR_SHA"
-          gh workflow run go.yml --ref "$RELEASE_PR_HEAD"
+          gh workflow run go.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_PR_HEAD"
 
   goreleaser:
     needs: release-please
