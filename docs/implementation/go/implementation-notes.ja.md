@@ -2,6 +2,10 @@
 
 # Go 実装ノート — 信頼された実行環境 / ポリシー強制の試作
 
+> **後続の具体化:** Issue #19 の Repository Authority / Posture は
+> [別の実装ノート](repository-authority-posture.ja.md)で扱う。本書中の「S2未実装」や
+> 「下流権威入力未対応」は、stack元である PR #15 の評価時点を記録したものである。
+
 ## 1. 位置づけ
 
 本書は、Agent Harness の[ツール仕様書](../../spec/agent-harness-spec.ja.md)にある

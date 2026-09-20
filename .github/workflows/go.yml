@@ -1,4 +1,4 @@
-name: Go S1
+name: Agent Harness Go
 on:
   push:
   pull_request:

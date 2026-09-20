@@ -1,5 +1,5 @@
-// Package policy implements only deterministic S1 classification. Regex rules
-// are not a shell parser, repository authority check or authorization gateway.
+// Package policy implements deterministic tool classification. Regex rules are
+// not a shell parser, repository authority check, or authorization gateway.
 package policy
 
 import (
@@ -20,12 +20,44 @@ type Decision struct {
 	Evidence *Evidence `json:"evidence,omitempty"`
 }
 
-// Evidence identifies the exact policy bytes and normalized action used for a
-// decision. S1 reads no external state, so there is no external-state evidence.
+// Evidence identifies the exact tool-policy bytes and normalized action used
+// for a decision. Repository is populated only when mutation authority requires
+// fresh repository and GitHub evaluation.
 type Evidence struct {
-	PolicySHA256 string `json:"policy_sha256"`
-	ActionSHA256 string `json:"action_sha256"`
-	Evaluator    string `json:"evaluator"`
+	PolicySHA256 string              `json:"policy_sha256"`
+	ActionSHA256 string              `json:"action_sha256"`
+	Evaluator    string              `json:"evaluator"`
+	Repository   *RepositoryEvidence `json:"repository,omitempty"`
+}
+
+// RepositoryEvidence binds a decision to the trusted repository policy and
+// fresh local/GitHub state used by Repository Authority / Posture. Authority
+// source and response digests identify the exact external evidence evaluated.
+type RepositoryEvidence struct {
+	PolicySHA256           string                    `json:"policy_sha256"`
+	PostureState           string                    `json:"posture_state"`
+	Repository             string                    `json:"repository"`
+	RepositoryID           int64                     `json:"repository_id"`
+	RepoRoot               string                    `json:"repo_root"`
+	MutationTarget         string                    `json:"mutation_target"`
+	Branch                 string                    `json:"branch"`
+	HeadSHA                string                    `json:"head_sha"`
+	DefaultBranch          string                    `json:"default_branch"`
+	LinkedWorktree         bool                      `json:"linked_worktree"`
+	AuthoritySource        string                    `json:"github_authority_source"`
+	MetadataSHA256         string                    `json:"github_metadata_sha256"`
+	DefaultAuthoritySHA256 string                    `json:"github_default_authority_sha256,omitempty"`
+	CurrentAuthoritySHA256 string                    `json:"github_current_authority_sha256,omitempty"`
+	CheckedAt              string                    `json:"checked_at"`
+	Checks                 []RepositoryCheckEvidence `json:"checks"`
+}
+
+// RepositoryCheckEvidence retains pass/fail/unknown without converting missing
+// authoritative state into success.
+type RepositoryCheckEvidence struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
 }
 
 // Evaluator identifies the experimental normalization and matching semantics.
@@ -116,12 +148,18 @@ func Load(r io.Reader) (*Engine, error) {
 	return e, nil
 }
 
+// Action preserves the complete normalized tool input for policy matching and
+// evidence. CWD and the derived Command/Target fields are untrusted until
+// Repository Guard validates them against the trusted task/worktree binding.
 type Action struct {
-	Tool  string
-	Input map[string]any
+	Tool    string
+	Input   map[string]any
+	Command string
+	CWD     string
+	Target  string
 }
 
-// ParseHook supports the two existing generic S1 spellings. Ambiguous aliases
+// ParseHook supports the two existing generic hook spellings. Ambiguous aliases
 // and wrong types are rejected instead of silently becoming empty commands.
 func ParseHook(r io.Reader) (Action, error) {
 	m, err := Object(r)
@@ -166,9 +204,51 @@ func ParseHook(r io.Reader) (Action, error) {
 		return Action{}, fmt.Errorf("invalid input")
 	}
 	a := Action{Tool: tool, Input: input}
-	if _, err := command(a); err != nil {
+	command, err := command(a)
+	if err != nil {
 		return Action{}, err
 	}
+	target := ""
+	for _, key := range []string{"path", "file_path"} {
+		if value, exists := input[key]; exists {
+			if target != "" {
+				return Action{}, fmt.Errorf("ambiguous target")
+			}
+			path, ok := value.(string)
+			if !ok || strings.TrimSpace(path) == "" {
+				return Action{}, fmt.Errorf("invalid target")
+			}
+			target = path
+		}
+	}
+	var cwdValue any
+	var hasCWD bool
+	if value, exists := m["cwd"]; exists {
+		cwdValue, hasCWD = value, true
+	}
+	if value, exists := m["context"]; exists {
+		contextFields, ok := value.(map[string]any)
+		if !ok {
+			return Action{}, fmt.Errorf("invalid context")
+		}
+		if value, exists := contextFields["cwd"]; exists {
+			if hasCWD {
+				return Action{}, fmt.Errorf("ambiguous cwd")
+			}
+			cwdValue, hasCWD = value, true
+		}
+	}
+	cwd := ""
+	if hasCWD {
+		var ok bool
+		cwd, ok = cwdValue.(string)
+		if !ok || strings.TrimSpace(cwd) == "" {
+			return Action{}, fmt.Errorf("invalid cwd")
+		}
+	}
+	a.Command = command
+	a.CWD = cwd
+	a.Target = target
 	return a, nil
 }
 
@@ -180,7 +260,8 @@ func (e *Engine) Evaluate(a Action) (Decision, error) {
 	actionJSON, err := json.Marshal(struct {
 		Tool  string         `json:"tool"`
 		Input map[string]any `json:"input"`
-	}{a.Tool, a.Input})
+		CWD   string         `json:"cwd,omitempty"`
+	}{a.Tool, a.Input, a.CWD})
 	if err != nil {
 		return Decision{}, fmt.Errorf("serialize normalized action: %w", err)
 	}
@@ -213,6 +294,9 @@ func (e *Engine) Evaluate(a Action) (Decision, error) {
 func command(a Action) (string, error) {
 	v, exists := a.Input["command"]
 	if !exists {
+		if a.Input == nil && a.Command != "" {
+			return a.Command, nil
+		}
 		if a.Tool == "exec" || a.Tool == "Bash" {
 			return "", fmt.Errorf("missing command")
 		}
@@ -225,4 +309,10 @@ func command(a Action) (string, error) {
 		return "", fmt.Errorf("command must be a string")
 	}
 	return command, nil
+}
+
+// Command returns the exact command string without joining argv or otherwise
+// losing input boundaries. Non-command tools return an empty string.
+func Command(a Action) (string, error) {
+	return command(a)
 }
