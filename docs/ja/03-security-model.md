@@ -47,8 +47,8 @@ TCB は小さく保ちます。少なくともオーケストレーター、ポ�
 
 ```mermaid
 flowchart LR
-    A[Agent Pod] --> N[NetworkPolicy]
-    N --> E[Controlled egress proxy / gateway]
+    A[エージェント Pod] --> N[NetworkPolicy]
+    N --> E[制御された外向き通信プロキシ / ゲートウェイ]
     E --> S[許可リスト登録済みサービス]
 ```
 

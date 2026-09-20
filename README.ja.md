@@ -2,9 +2,11 @@
 
 # Agent Harness 日本語版
 
-Claude Code / OpenAI Codex / Devin CLI などの自律型ソフトウェア開発エージェントを、安全かつ再利用可能な形で運用するための、ベンダー非依存のリファレンスアーキテクチャと実装例です。
+Claude Code / OpenAI Codex / Devin CLI などの自律型ソフトウェア開発エージェントを、安全かつ再利用可能な形で運用するための、ベンダー非依存アーキテクチャと **Go による本番実装**です。
 
 このリポジトリの中心的な考え方は、**LLM 自体をセキュリティ境界として扱わない**ことです。自律実行は、独立したポリシー、OS サンドボックス、Pod/コンテナ分離、外部 IAM、ネットワーク制御、機械検証可能な完了条件によって制約されるべきです。
+
+本番実装は Go に一本化しています。旧 Python 実装は廃止し、参照実装 / 互換性 / 差分回帰の適合対象には含めません。Python 実装で得た有効な発見は、保証契約、Go テスト、根拠、判断履歴へ一般化された知識としてのみ保持します。
 
 ## 基本アーキテクチャ
 
@@ -61,6 +63,7 @@ flowchart LR
 
 - [Agent Harness ツール仕様書（骨格）](docs/spec/agent-harness-spec.ja.md) — 実装言語・保証スライスから独立した契約と未決事項
 - [Agent Harness 用語集](docs/spec/agent-harness-glossary.ja.md) — 仕様・実装・保証で共有する用語の定義
+- [Go 本番実装方針](docs/implementation/go/production-implementation-policy.ja.md) — Go を唯一の本番実装とする方針
 - [Go 実装ノート](docs/implementation/go/implementation-notes.ja.md) — 信頼された実行環境 / ポリシー強制の実験的具体化と根拠
 - [Go リポジトリ変更権限 / 状態 実装ノート](docs/implementation/go/repository-authority-posture.ja.md) — リポジトリ権限の具体化、S2 の根拠、Python 比較、未決事項
 - [Go 公開保護 実装ノート](docs/implementation/go/publication-guard.ja.md) — 公開意味論の具体化、S3 の根拠、Python 比較、未決事項
@@ -70,10 +73,9 @@ flowchart LR
 - [導入ガイド](docs/ja/04-adoption-guide.md) ([English](docs/04-adoption-guide.md))
 - [製品マッピング](docs/ja/05-product-mapping.md) ([English](docs/05-product-mapping.md))
 - [`AGENTS.md`](AGENTS.md) — コーディングエージェント向け開発指示
-- [`policy_engine.py`](reference/hooks/policy_engine.py) — ベンダー非依存のポリシーエンジン
-- [`pre_tool_use_adapter.py`](reference/hooks/pre_tool_use_adapter.py) — フックアダプター例
+- [`internal/`](internal/) — Go による本番実装
 - [`policy.example.json`](reference/policies/policy.example.json) — ポリシー例
-- [`completion_gate.sh`](reference/scripts/completion_gate.sh) — 完了条件検証
+- [`completion_gate.sh`](reference/scripts/completion_gate.sh) — 完了条件検証の外部機構例
 - [`agent-pod.yaml`](reference/kubernetes/agent-pod.yaml) — 強化済み Pod の例
 - [`network-policy.yaml`](reference/kubernetes/network-policy.yaml) — 既定拒否の NetworkPolicy 例
 
