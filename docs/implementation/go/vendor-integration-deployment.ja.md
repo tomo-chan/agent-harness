@@ -139,6 +139,9 @@ flowchart TD
 
 `internal/buildinfo` と `agent-harness version` は、Go toolchainが埋め込んだ次の情報をJSONで出力する。
 
+- release version
+- release source commit
+- build date
 - Go version
 - GOOS
 - GOARCH
@@ -158,7 +161,29 @@ GitHub Actions `Agent Harness Go` はLinux/macOS双方で次を実行する。
 - `go vet ./...`
 - `go build ./...`
 
-これらはsource-level / runtime test assuranceであり、artifact distributionの完全性を保証しない。
+さらにGoReleaser v2によるsnapshot jobはLinux/macOSのamd64/arm64 archiveを生成し、
+release identityを埋め込んだ実行可能ファイル、`checksums.txt`、artifact uploadを検証する。
+snapshotを含むこれらの検証はsource-level / runtime / packaging assuranceであり、
+公開済みartifactの配布経路や導入先の完全性まで単独では保証しない。
+
+### リリース経路
+
+`tomo-chan/panemux` の運用を基線として、Release PleaseとGoReleaserを分離して接続する。
+
+1. `main` pushでRelease PleaseがConventional Commitsをversion / changelogへ変換し、release PRを管理する。
+2. `GITHUB_TOKEN`によるPR作成・更新は`pull_request` workflowを再帰起動しないため、action outputのPR番号・head branch・head SHAを照合し、そのheadへ通常CIを`workflow_dispatch`する。
+3. 全チェックを通過したrelease PRのmergeで`v` prefixのtagとdraft GitHub releaseを作成する。
+4. release作成時だけGoReleaserを起動し、全Go assurance gateの成功後に4 platform archiveとSHA-256 manifestを既存draftへ添付する。
+5. GitHub releaseの公開はmaintainerによる明示操作とし、workflowはdraftを自動公開しない。
+
+Workflow actionはcommit SHAで固定し、通常CIは`contents: read`、Release Please jobは
+`contents: write` / `pull-requests: write`、CI dispatch jobは`actions: write`と読取権限、
+GoReleaser jobは`contents: write`だけを持つ。
+リリース用credentialはGitHub Actionsのjob-scoped `GITHUB_TOKEN`に限定し、repositoryへ保存しない。
+
+Release Pleaseによるtag / draft作成とGoReleaserのasset uploadは別の外部副作用である。
+asset buildが失敗した場合は公開済みとみなさず、失敗jobを修復・再実行してdraft assetと
+checksumを確認する。既存tagを削除・再作成する通常経路は設けない。
 
 GitHub artifact attestationを採用する場合、private repositoryでの利用可否はGitHub planとorganization設定に依存するため、利用可能性を確認してからproduction requirementへ昇格する。attestationが利用できない場合でも、SHA-256、署名、配布経路、installed artifact verificationを別の決定的mechanismで確立する必要がある。
 

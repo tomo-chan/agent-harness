@@ -1,9 +1,13 @@
 name: Agent Harness Go
+
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   test-build:
     strategy:
@@ -12,8 +16,8 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: false
@@ -27,8 +31,44 @@ jobs:
           go build -trimpath -buildvcs=true -o dist/agent-harness .
           ./dist/agent-harness version > dist/build-info.json
           (cd dist && shasum -a 256 agent-harness build-info.json > SHA256SUMS)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: agent-harness-${{ runner.os }}-${{ runner.arch }}
           path: dist/
+          if-no-files-found: error
+
+  release-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build release snapshot
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+        env:
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY_NAME: ${{ github.event.repository.name }}
+      - name: Verify release metadata and checksum manifest
+        run: |
+          binary="$(find dist -type f -path '*linux_amd64*/agent-harness' -print -quit)"
+          test -n "$binary"
+          "$binary" version | tee dist/build-info.json
+          grep -q '"version":"[^"]*-next"' dist/build-info.json
+          grep -q '"commit":"${{ github.sha }}"' dist/build-info.json
+          test -s dist/checksums.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: agent-harness-release-snapshot
+          path: |
+            dist/*.tar.gz
+            dist/checksums.txt
+            dist/build-info.json
           if-no-files-found: error

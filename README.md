@@ -59,6 +59,27 @@ flowchart LR
 
 The agent should normally be able to perform routine work without human interaction. Human approval is reserved for operations whose risk cannot be bounded safely by static policy or sandboxing.
 
+## Binary releases
+
+Draft GitHub releases contain `agent-harness` archives for Linux and macOS on
+amd64 and arm64, plus a SHA-256 manifest named `checksums.txt`. Verify the
+downloaded archive against its matching manifest entry before installation,
+then run `agent-harness version` to inspect the embedded release version,
+source commit, build date, Go version and target platform.
+
+The release workflow follows the repository's protected-branch model:
+
+1. Conventional commits merged to `main` are collected into an automated Release Please PR.
+2. The release workflow explicitly dispatches the normal CI workflow for the generated PR head, because GitHub does not recursively trigger workflows for PRs created with `GITHUB_TOKEN`.
+3. Merging the fully checked release PR creates a version tag and a draft GitHub release.
+4. GoReleaser runs the complete Go assurance suite, builds all supported targets and attaches the archives and checksum manifest.
+5. A maintainer reviews the draft and publishes it explicitly.
+
+Pull requests also build a GoReleaser snapshot and upload it as a CI artifact,
+so the packaging configuration, embedded build identity and checksum manifest
+are verified before a release commit reaches `main`. Maintainers can run
+`make release-check` or `make release-snapshot` locally with GoReleaser v2.
+
 ## Repository layout
 
 - [Agent Harness Tool Specification (Japanese draft)](docs/spec/agent-harness-spec.ja.md) — contracts and open questions independent of implementation language and assurance slices
@@ -67,6 +88,7 @@ The agent should normally be able to perform routine work without human interact
 - [Go implementation notes (Japanese)](docs/implementation/go/implementation-notes.ja.md) — Trusted Runtime / Policy Enforcement realization and evidence
 - [Go Repository Authority / Posture notes (Japanese)](docs/implementation/go/repository-authority-posture.ja.md) — repository authority realization, S2 evidence, known findings, and open questions
 - [Go Publication Guard notes (Japanese)](docs/implementation/go/publication-guard.ja.md) — publication semantics, S3 evidence, known findings, and open questions
+- [Go vendor integration / deployment notes (Japanese)](docs/implementation/go/vendor-integration-deployment.ja.md) — vendor mappings, build identity, and binary release trust boundaries
 - [Architecture](docs/01-architecture.md) ([日本語](docs/ja/01-architecture.md)) — logical and deployment architecture
 - [Design Principles](docs/02-design-principles.md) ([日本語](docs/ja/02-design-principles.md)) — design principles and responsibility boundaries
 - [Security Model](docs/03-security-model.md) ([日本語](docs/ja/03-security-model.md)) — threat model and defense-in-depth controls

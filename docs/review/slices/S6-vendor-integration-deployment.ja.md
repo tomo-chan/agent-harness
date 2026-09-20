@@ -38,11 +38,13 @@ Go production implementationではsource→toolchain→artifact→distribution�
 
 S6 reviewではコード内のpath checkだけをdeployment guaranteeとして過剰主張しない。build provenance、artifact integrity、signing、version、update、rollback、revocation、OS/architecture、credential containmentは外部強制機構との分担として記録する。
 
-CIはLinux/macOSを独立に評価し、unit/race/vet/buildに加えてdistribution candidate、build identity、SHA-256 manifestをartifactとして保存する。片方のOSが失敗しても他方のEvidenceを失わないようmatrixのfail-fastを無効化する。
+CIはLinux/macOSを独立に評価し、unit/race/vet/buildに加えてdistribution candidate、build identity、SHA-256 manifestをartifactとして保存する。片方のOSが失敗しても他方のEvidenceを失わないようmatrixのfail-fastを無効化する。GoReleaser snapshotはreleaseと同じ4 targetのarchive生成、埋め込みrelease identity、checksum manifest、artifact uploadをPRごとに追加検証する。
 
 ## レビューでの発見
 
 macOSではtemporary directoryの`/var/...`がcanonical pathとして`/private/var/...`へ解決される。trusted path実装は正規化済みpathを返していたが、初期testが非正規化pathとの文字列一致を要求して失敗した。実装の信頼境界を弱めず、test側をcanonical path比較へ修正した。このfindingをcross-platform trusted-path regressionとして保持する。
+
+Release Pleaseがjob-scoped `GITHUB_TOKEN`で作成・更新するrelease PRは、GitHubの再帰実行防止により`pull_request` workflowを自動起動しない。これはrelease PRにもLinux/macOSとdistribution snapshotのEvidenceを要求する設計に対する実装エラーと分類した。release actionが返すPR番号・branchをGitHub APIのfresh head SHAと照合し、`workflow_dispatch`で同じCIを明示起動する回帰防止を追加した。長期PATを追加せず、dispatch jobだけに`actions: write`を限定する。
 
 ## 収束条件
 
