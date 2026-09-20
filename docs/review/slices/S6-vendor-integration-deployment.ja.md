@@ -38,7 +38,7 @@ Go production implementationではsource→toolchain→artifact→distribution�
 
 S6 reviewではコード内のpath checkだけをdeployment guaranteeとして過剰主張しない。build provenance、artifact integrity、signing、version、update、rollback、revocation、OS/architecture、credential containmentは外部強制機構との分担として記録する。
 
-CIはLinux/macOSを独立に評価し、unit/race/vet/buildに加えてdistribution candidate、build identity、SHA-256 manifestをartifactとして保存する。片方のOSが失敗しても他方のEvidenceを失わないようmatrixのfail-fastを無効化する。
+CIはLinux/macOSを独立に評価し、unit/race/vet/buildに加えてdistribution candidate、build identity、SHA-256 manifestをartifactとして保存する。片方のOSが失敗しても他方のEvidenceを失わないようmatrixのfail-fastを無効化する。GoReleaser snapshotはreleaseと同じ4 targetのarchive生成、埋め込みrelease identity、checksum manifest、artifact uploadをPRごとに追加検証する。
 
 ## レビューでの発見
 

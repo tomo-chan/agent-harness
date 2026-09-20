@@ -8,7 +8,16 @@ import (
 	"runtime/debug"
 )
 
+var (
+	version   = "dev"
+	commit    = ""
+	buildDate = ""
+)
+
 type Info struct {
+	Version   string `json:"version"`
+	Commit    string `json:"commit,omitempty"`
+	BuildDate string `json:"build_date,omitempty"`
 	GoVersion string `json:"go_version"`
 	GOOS      string `json:"goos"`
 	GOARCH    string `json:"goarch"`
@@ -19,15 +28,27 @@ type Info struct {
 }
 
 func Current() Info {
-	out := Info{GoVersion: runtime.Version(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	out := Info{
+		Version:   version,
+		Commit:    commit,
+		BuildDate: buildDate,
+		GoVersion: runtime.Version(),
+		GOOS:      runtime.GOOS,
+		GOARCH:    runtime.GOARCH,
+	}
 	bi, ok := debug.ReadBuildInfo()
-	if !ok { return out }
+	if !ok {
+		return out
+	}
 	out.Module = bi.Main.Path
 	for _, setting := range bi.Settings {
 		switch setting.Key {
-		case "vcs.revision": out.Revision = setting.Value
-		case "vcs.modified": out.Modified = setting.Value
-		case "vcs.time": out.VCSTime = setting.Value
+		case "vcs.revision":
+			out.Revision = setting.Value
+		case "vcs.modified":
+			out.Modified = setting.Value
+		case "vcs.time":
+			out.VCSTime = setting.Value
 		}
 	}
 	return out

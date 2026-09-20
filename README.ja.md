@@ -59,6 +59,26 @@ flowchart LR
 
 通常業務は可能な限り人間の確認なしで完結させます。人間の承認は、静的ポリシーやサンドボックスだけでは安全に境界づけられない操作に限定します。
 
+## バイナリリリース
+
+GitHub の draft release には、Linux / macOS の amd64 / arm64 向け
+`agent-harness` アーカイブと、SHA-256 manifest `checksums.txt` が添付されます。
+導入前にダウンロードしたアーカイブを対応する manifest entry と照合し、導入後は
+`agent-harness version` でリリースバージョン、ソースコミット、ビルド日時、Go version、
+対象 platform を確認してください。
+
+リリースは保護ブランチの運用と分離せず、次の順序で進みます。
+
+1. `main` にマージされた Conventional Commits を Release Please がリリース PR に集約する。
+2. リリース PR のマージによって version tag と draft GitHub release を作成する。
+3. GoReleaser が Go の全保証 suite を実行し、全対象向けアーカイブと checksum manifest を draft に添付する。
+4. maintainer が draft の内容を確認し、明示的に公開する。
+
+Pull request の CI でも GoReleaser snapshot を生成して artifact として保存するため、
+packaging 設定、埋め込み build identity、checksum manifest はリリース用 commit が
+`main` に入る前に検証されます。maintainer は GoReleaser v2 を使って
+`make release-check` または `make release-snapshot` をローカル実行できます。
+
 ## リポジトリ構成
 
 - [Agent Harness ツール仕様書（骨格）](docs/spec/agent-harness-spec.ja.md) — 実装言語・保証スライスから独立した契約と未決事項
@@ -67,6 +87,7 @@ flowchart LR
 - [Go 実装ノート](docs/implementation/go/implementation-notes.ja.md) — 信頼された実行環境 / ポリシー強制の実験的具体化と根拠
 - [Go リポジトリ変更権限 / 状態 実装ノート](docs/implementation/go/repository-authority-posture.ja.md) — リポジトリ権限の具体化、S2 の根拠、Python 比較、未決事項
 - [Go 公開保護 実装ノート](docs/implementation/go/publication-guard.ja.md) — 公開意味論の具体化、S3 の根拠、Python 比較、未決事項
+- [Go ベンダー統合 / 配備 実装ノート](docs/implementation/go/vendor-integration-deployment.ja.md) — ベンダー写像、build identity、binary release の信頼境界
 - [アーキテクチャ](docs/ja/01-architecture.md) ([English](docs/01-architecture.md))
 - [設計原則](docs/ja/02-design-principles.md) ([English](docs/02-design-principles.md))
 - [セキュリティモデル](docs/ja/03-security-model.md) ([English](docs/03-security-model.md))
