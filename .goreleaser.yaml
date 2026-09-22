@@ -1,0 +1,64 @@
+version: 2
+
+project_name: agent-harness
+
+before:
+  hooks:
+    - go test ./...
+    - go test -race ./...
+    - go vet ./...
+    - go build ./...
+
+builds:
+  - id: agent-harness
+    main: .
+    binary: agent-harness
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+      - -buildvcs=true
+    ldflags:
+      - >-
+        -s -w
+        -X github.com/tomo-chan/agent-harness/internal/buildinfo.version={{.Version}}
+        -X github.com/tomo-chan/agent-harness/internal/buildinfo.commit={{.Commit}}
+        -X github.com/tomo-chan/agent-harness/internal/buildinfo.buildDate={{.Date}}
+
+archives:
+  - id: default
+    ids:
+      - agent-harness
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - README.ja.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  use_existing_draft: true
+  mode: keep-existing
+  github:
+    owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
+    name: "{{ .Env.GITHUB_REPOSITORY_NAME }}"

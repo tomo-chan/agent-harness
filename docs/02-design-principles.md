@@ -59,7 +59,7 @@ Normalize vendor lifecycle events into a small internal contract such as:
 }
 ```
 
-The central policy engine should return a vendor-neutral decision. Claude Code, Codex and Devin adapters translate to/from their native hook schemas. See [`policy_engine.py`](../reference/hooks/policy_engine.py) and [`pre_tool_use_adapter.py`](../reference/hooks/pre_tool_use_adapter.py).
+The central policy engine should return a vendor-neutral decision. Claude Code, Codex and Devin adapters translate to/from their native hook schemas. The active Go implementation is [`internal/policy/policy.go`](../internal/policy/policy.go), with vendor mapping in [`internal/vendor/adapter.go`](../internal/vendor/adapter.go).
 
 ## 10. Make policy observable
 
