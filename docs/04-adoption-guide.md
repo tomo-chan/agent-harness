@@ -54,8 +54,8 @@ Only after strong isolation and IAM controls are proven should agents interact w
 ## Suggested implementation order
 
 1. Define normalized action and policy schemas.
-2. Implement central [`policy_engine.py`](../reference/hooks/policy_engine.py) and unit tests.
-3. Add vendor hook adapters; the repository contains [`pre_tool_use_adapter.py`](../reference/hooks/pre_tool_use_adapter.py) as a minimal example.
+2. Implement the central policy engine and tests; see [`internal/policy/policy.go`](../internal/policy/policy.go) and [`internal/policy/policy_test.go`](../internal/policy/policy_test.go).
+3. Add vendor hook adapters; the Go implementation maps vendor contracts in [`internal/vendor/adapter.go`](../internal/vendor/adapter.go) with tests in [`internal/vendor/adapter_test.go`](../internal/vendor/adapter_test.go).
 4. Configure static permissions/rules.
 5. Enable fail-closed OS sandbox where supported.
 6. Harden container/Pod using [`agent-pod.yaml`](../reference/kubernetes/agent-pod.yaml) as a starting point.

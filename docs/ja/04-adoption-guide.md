@@ -2,100 +2,100 @@
 
 # 導入ガイド
 
-自律化は段階的に導入します。各段階で exit criteria と観測可能な evidence を定義し、それを満たしてから権限を拡大します。権限拡大前に[セキュリティモデル](03-security-model.md)を確認してください。
+自律化は段階的に導入します。各段階で終了条件と観測可能な根拠を定義し、それを満たしてから権限を拡大します。権限拡大前に[セキュリティモデル](03-security-model.md)を確認してください。
 
-## Stage 0 — Observe
+## 段階 0 — 観測
 
-Agent を read-only で動かし、詳細 telemetry を有効にして、利用しようとする command / tool を収集します。
+エージェントを読み取り専用で動かし、詳細なテレメトリーを有効にして、利用しようとするコマンド / ツールを収集します。
 
-Exit criteria:
-- 頻出 workflow を特定できている
-- 必要 domain / tool の inventory がある
-- sensitive path / resource の分類ができている
-- baseline cost / failure rate が把握できている
+終了条件:
+- 頻出ワークフローを特定できている
+- 必要なドメイン / ツールの一覧がある
+- 機密パス / リソースの分類ができている
+- 基準費用 / 失敗率が把握できている
 
-## Stage 1 — Workspace Mutation
+## 段階 1 — ワークスペース変更
 
-Disposable な task worktree 内だけ write を許可します。Network は制限したままにし、明示的に safe と分類されていない shell action は approval 対象とします。
+使い捨てのタスク用ワークツリー内だけ書き込みを許可します。ネットワークは制限したままにし、明示的に安全と分類されていないシェル操作は承認対象とします。
 
-Exit criteria:
-- worktree 選択が安定している
-- test / lint / type-check が deterministic に実行できる
-- workspace 外への write が発生しない
-- rollback が容易
+終了条件:
+- ワークツリー選択が安定している
+- テスト / リント / 型検査が決定的に実行できる
+- ワークスペース外への書き込みが発生しない
+- ロールバックが容易
 
-## Stage 2 — PR Automation
+## 段階 2 — PR 自動化
 
-Repository-scoped short-lived credential を使い、commit、feature branch push、PR creation を許可します。Default branch は server-side で保護します。
+リポジトリ限定の短期認証情報を使い、コミット、機能ブランチの push、PR 作成を許可します。既定ブランチはサーバー側で保護します。
 
-Exit criteria:
-- protected branch への直接 mutation が技術的に不可能
-- completion gate が Git / PR state を検証する
-- CI が authoritative
-- task -> commit -> PR を audit 上で相関できる
+終了条件:
+- 保護ブランチへの直接変更が技術的に不可能
+- 完了ゲートが Git / PR 状態を検証する
+- CI が権威ある判定元になっている
+- タスク → コミット → PR を監査上で相関できる
 
 リファレンス実装は [`completion_gate.sh`](../../reference/scripts/completion_gate.sh) です。
 
-## Stage 3 — Unattended Operation
+## 段階 3 — 無人運用
 
-Routine action を allow rule に移し、例外操作には external approval gateway を導入します。Turn / time / tool / cost budget と failure circuit breaker を設定します。最小構成の分類例は [`policy.example.json`](../../reference/policies/policy.example.json) を参照してください。
+定型操作を許可規則に移し、例外操作には外部承認ゲートウェイを導入します。ターン / 時間 / ツール / 費用の予算と失敗時の遮断機構を設定します。最小構成の分類例は [`policy.example.json`](../../reference/policies/policy.example.json) を参照してください。
 
-Approval 候補:
-- filesystem/network scope の拡張
-- sensitive data へのアクセス
-- CI / security policy の変更
-- force operation
-- production-impacting cloud action
+承認候補:
+- ファイルシステム / ネットワークの適用範囲拡大
+- 機密データへのアクセス
+- CI / セキュリティポリシーの変更
+- 強制操作
+- 本番へ影響するクラウド操作
 
-## Stage 4 — Production-adjacent Workflow
+## 段階 4 — 本番隣接ワークフロー
 
-Isolation と IAM Control が十分に検証されてから、staging / production-adjacent system へのアクセスを許可します。直接 deployment より、既存 CI/CD を経由する方式を優先します。Production diagnostics は read-only を基本とします。
+分離と IAM 制御が十分に検証されてから、ステージング / 本番隣接システムへのアクセスを許可します。直接配備より、既存 CI/CD を経由する方式を優先します。本番診断は読み取り専用を基本とします。
 
 ## 推奨実装順序
 
-1. Normalized Action / Policy Schema を定義する
-2. Central [`policy_engine.py`](../../reference/hooks/policy_engine.py) と unit test を実装する
-3. Vendor Hook Adapter を追加する。最小例は [`pre_tool_use_adapter.py`](../../reference/hooks/pre_tool_use_adapter.py)
-4. Static Permissions / Rules を設定する
-5. 利用可能なら fail-closed OS Sandbox を有効化する
-6. [`agent-pod.yaml`](../../reference/kubernetes/agent-pod.yaml) を起点に Container / Pod を harden する
-7. [`network-policy.yaml`](../../reference/kubernetes/network-policy.yaml) を参考に Default-deny Network Control と egress path を追加する
-8. Static Credential を Workload Identity / short-lived token に置き換える
-9. Worktree Lifecycle Manager を実装する
-10. Deterministic Completion Gate を実装する
-11. PR / CI State を統合する
-12. External Approval Workflow を追加する
-13. Structured Telemetry を export する
-14. Parent lifecycle が安定してから Subagent を導入する
+1. 正規化された操作 / ポリシースキーマを定義する
+2. 中央ポリシーエンジンとテストを実装する。現行例は [`internal/policy/policy.go`](../../internal/policy/policy.go) と [`internal/policy/policy_test.go`](../../internal/policy/policy_test.go)
+3. ベンダーフックアダプターを追加する。Go 実装のベンダー写像は [`internal/vendor/adapter.go`](../../internal/vendor/adapter.go)、テストは [`internal/vendor/adapter_test.go`](../../internal/vendor/adapter_test.go)
+4. 静的な権限 / 規則を設定する
+5. 利用可能ならフェイルクローズの OS サンドボックスを有効化する
+6. [`agent-pod.yaml`](../../reference/kubernetes/agent-pod.yaml) を起点にコンテナ / Pod を強化する
+7. [`network-policy.yaml`](../../reference/kubernetes/network-policy.yaml) を参考に既定拒否のネットワーク制御と外向き通信経路を追加する
+8. 固定認証情報をワークロードアイデンティティ / 短期トークンに置き換える
+9. ワークツリーのライフサイクル管理機構を実装する
+10. 決定的な完了ゲートを実装する
+11. PR / CI 状態を統合する
+12. 外部承認ワークフローを追加する
+13. 構造化テレメトリーを出力する
+14. 親のライフサイクルが安定してからサブエージェントを導入する
 
-## Policy Development Workflow
+## ポリシー開発ワークフロー
 
-Policy は code として扱います。
+ポリシーはコードとして扱います。
 
-- version control する
-- allow / deny / ask の unit test を持つ
-- incident ごとに regression test を追加する
-- security-sensitive code として review する
-- 可能なら Prompt とは独立して deploy する
-- 全 decision に policy version を記録する
+- バージョン管理する
+- 許可 / 拒否 / 承認要求の単体テストを持つ
+- インシデントごとに回帰テストを追加する
+- セキュリティ上重要なコードとしてレビューする
+- 可能ならプロンプトとは独立して配備する
+- すべての判断にポリシーバージョンを記録する
 
-最初は restrictive に始め、Telemetry から安全な操作を特定して auto-allow を拡大します。Permissive に始めて危険コマンドを deny-list で列挙する方式は避けます。
+最初は制限的に始め、テレメトリーから安全な操作を特定して自動許可を拡大します。許可的に始めて危険コマンドを拒否リストで列挙する方式は避けます。
 
 ## 運用メトリクス
 
 有用な指標:
 
-- autonomous completion rate
-- task あたり human approval 回数
-- task あたり deny 回数
-- policy false-positive rate
-- verification failure 後の retry 数
-- median task wall-clock time
-- completed task あたり token / compute cost
-- PR の first-attempt CI success rate
-- escaped defect / revert 数
-- sandbox/network denial 数
-- budget / circuit breaker による terminate 数
+- 自律完了率
+- タスクあたりの人間による承認回数
+- タスクあたりの拒否回数
+- ポリシーの誤検出率
+- 検証失敗後の再試行数
+- タスクの中央経過時間
+- 完了タスクあたりのトークン / 計算費用
+- PR の初回 CI 成功率
+- 流出不具合 / 差し戻し数
+- サンドボックス / ネットワークによる拒否数
+- 予算 / 遮断機構による停止数
 
 目標は「最大の自律性」ではありません。**境界づけ可能・観測可能・復旧可能な範囲で最大の自律性**を目指します。
 

@@ -25,7 +25,7 @@ flowchart TD
     P --> S[OS sandbox<br/>bound filesystem / network capabilities]
     S --> C[Pod / container isolation<br/>protect host and peer workloads]
     C --> N[Network enforcement<br/>bound destinations / protocols]
-    N --> I[IAM / SCM authorization<br/>bound external authority]
+    N --> I[IAM / source code management authorization<br/>bound external authority]
     I --> R[Server-side protections<br/>protect critical resources]
 ```
 
@@ -66,11 +66,11 @@ MCP extends the agent's authority and therefore belongs inside the threat model.
 
 A read-only service account is preferable for production data access. Avoid exposing generic administrative MCP tools to autonomous sessions.
 
-## Git and SCM
+## Git and Source Code Management
 
 Allow routine operations such as status, diff, log, feature-branch commit/push and PR creation. Deny or require approval for force push, protected-branch mutation, tag/release creation, workflow modification and merge depending on organizational policy. The sample classifications are in [`policy.example.json`](../reference/policies/policy.example.json).
 
-SCM server-side rules are the final authority. An agent credential should not be able to bypass them.
+Source code management server-side rules are the final authority. An agent credential should not be able to bypass them.
 
 ## Hook failure semantics
 

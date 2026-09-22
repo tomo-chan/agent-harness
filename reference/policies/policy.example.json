@@ -10,7 +10,7 @@
     {
       "id": "deny-force-push",
       "tool_regex": "^(exec|Bash)$",
-      "command_regex": "git\\s+push\\b[^\\n]*(--force|-f)(\\s|$)",
+      "command_regex": "git[ \\t]+push\\b[^\\n]*(?:--force(?:-with-lease|-if-includes)?|-f)(?:[= \\t]|$)",
       "reason": "force push is prohibited"
     },
     {
@@ -38,20 +38,32 @@
     {
       "id": "allow-git-read",
       "tool_regex": "^(exec|Bash)$",
-      "command_regex": "^git\\s+(status|diff|log|show|branch|rev-parse|worktree\\s+list)\\b",
+      "command_regex": "^git[ \\t]+(?:(?:status|diff|log|show|branch|rev-parse)(?:[ \\t]+[A-Za-z0-9._/@:=+~,^-]+)*|worktree[ \\t]+list(?:[ \\t]+[A-Za-z0-9._/@:=+~,^-]+)*)[ \\t]*$",
       "reason": "read-only Git inspection"
     },
     {
       "id": "allow-tests",
       "tool_regex": "^(exec|Bash)$",
-      "command_regex": "^(pytest|ruff|mypy|npm\\s+test|go\\s+test)\\b",
+      "command_regex": "^(?:(?:pytest|ruff|mypy)(?:[ \\t]+[A-Za-z0-9._/@:=+~,^-]+)*|npm[ \\t]+test(?:[ \\t]+[A-Za-z0-9._/@:=+~,^-]+)*|go[ \\t]+test(?:[ \\t]+[A-Za-z0-9._/@:=+~,^-]+)*)[ \\t]*$",
       "reason": "verification command"
     },
     {
-      "id": "allow-pr-create",
+      "id": "allow-canonical-push-candidate",
       "tool_regex": "^(exec|Bash)$",
-      "command_regex": "^gh\\s+pr\\s+(create|view|status)\\b",
-      "reason": "pull-request workflow is within the normal autonomous boundary"
+      "command_regex": "^git[ \\t]+push[ \\t]+(?:--set-upstream[ \\t]+)?origin[ \\t]+HEAD:refs/heads/[A-Za-z0-9][A-Za-z0-9._/-]*[ \\t]*$",
+      "reason": "canonical feature-branch push candidate requires Publication Guard validation"
+    },
+    {
+      "id": "allow-canonical-pr-create-candidate",
+      "tool_regex": "^(exec|Bash)$",
+      "command_regex": "^gh[ \\t]+pr[ \\t]+create[ \\t]+--fill[ \\t]*$",
+      "reason": "canonical PR creation candidate requires Publication Guard validation"
+    },
+    {
+      "id": "allow-pr-read",
+      "tool_regex": "^(exec|Bash)$",
+      "command_regex": "^gh[ \\t]+pr[ \\t]+(?:view|status)(?:[ \\t]+[A-Za-z0-9._/@:=+~,^-]+)*[ \\t]*$",
+      "reason": "read-only pull-request inspection"
     }
   ]
 }

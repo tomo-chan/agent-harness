@@ -53,7 +53,7 @@ flowchart LR
     A2 --> R[Vendor response]
 ```
 
-The reference implementation is [`policy_engine.py`](../reference/hooks/policy_engine.py) with a minimal [`pre_tool_use_adapter.py`](../reference/hooks/pre_tool_use_adapter.py).
+The active Go implementation is [`internal/policy/policy.go`](../internal/policy/policy.go), with shared vendor mapping in [`internal/vendor/adapter.go`](../internal/vendor/adapter.go).
 
 Do not attempt to normalize every vendor feature. Normalize the security and orchestration semantics that the organization owns; retain product-specific capabilities behind adapters when they provide value.
 
