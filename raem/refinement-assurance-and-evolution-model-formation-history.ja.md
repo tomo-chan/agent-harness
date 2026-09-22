@@ -5,6 +5,11 @@
 
 本書は、Refinement, Assurance and Evolution Model（RAEM）の仕様そのものを説明する文書ではない。
 
+本書中の「導入した」「実装した」は、その時点の設計議論や検証用ブランチでの具体化を含む。
+それだけで当時の `main` にマージ済みだったことや、現在も同じ形で実装されていることを意味しない。
+歴史上の提案・未マージ実装と、後に本番実装へ採用された状態を区別する必要がある箇所では、
+PRと現在の実装先を明記する。
+
 RAEMが、
 
 - どのような実務上の問題から生まれたのか
@@ -341,13 +346,19 @@ RESTRICTED状態でもremote mutation可能
 
 だった。
 
-そこで単なるregex修正ではなく、設計を変更した。
+そこで単なるregex修正ではなく、公開操作を独立した保証対象として扱う設計変更へ進んだ。
 
 ---
 
 ## 8. Canonical SCM Publicationという一般化
 
-`git push`について、自律実行可能な形を極端に限定した。
+`git push`について、自律実行可能な形を極端に限定する設計を検討し、旧Python実装系列で
+具体化した。
+
+この形成史の初版を作成した時点では、その具体化は未マージの
+[PR #8](https://github.com/tomo-chan/agent-harness/pull/8) 上にあり、当時の `main` がこの対策を
+提供していたわけではない。したがって、以下は「問題発見から得た設計と検証の履歴」であり、
+当時の配布済みAgent Harnessの保証を記述するものではない。
 
 許可するcommand shapeを、
 
@@ -363,6 +374,22 @@ git push --set-upstream origin HEAD
 
 だけにした。
 
+この二つは旧Python実装系列で検討した当時のcommand shapeである。その後、Goを唯一の本番実装と
+する方針の下で再具体化し、[PR #22](https://github.com/tomo-chan/agent-harness/pull/22)として
+`main`へマージした。現行Go実装が自律許可候補とする正規形は、公開先を完全なrefspecへ束縛した
+次の二つである。
+
+```bash
+git push origin HEAD:refs/heads/<current-branch>
+git push --set-upstream origin HEAD:refs/heads/<current-branch>
+```
+
+`git status && git push ...`のような複合commandは公開候補として検出するが、自律許可しない。
+現行の意味論と対象外は[Go公開保護実装ノート](../docs/implementation/go/publication-guard.ja.md)、
+回帰根拠は`internal/publication/guard_test.go`の
+`TestClassifyPublicationMoreBroadlyThanCanonicalForms`と
+`TestNoncanonicalAndCompoundPushesAreNotAutonomouslyAllowed`に記録している。
+
 さらに文字列判定だけではなく、
 
 - current branch
@@ -371,7 +398,8 @@ git push --set-upstream origin HEAD
 - upstream
 - detached HEAD
 
-などを実際のGit stateから確認するsemantic validationを導入した。
+などを実際のGit stateから確認するsemantic validationを検証用実装へ導入し、後のGo実装では
+freshなRepository AuthorityとPublication Evidenceへ再具体化した。
 
 これによって、
 
@@ -396,9 +424,11 @@ Concrete bug
 ↓
 新しい設計原則
 ↓
-実装変更
+検証用実装の変更
 ↓
 回帰テスト
+↓
+本番系列での再具体化とマージ
 ```
 
 という流れが自然に起こったことである。
