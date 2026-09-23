@@ -8,6 +8,12 @@
 
 時刻の境界は日本標準時とし、2026年9月7日にマージされたPR #13から、2026年9月22日のPR #5フォローアップまでを対象とする。
 
+この記録の根拠対象、取得時点、有効条件は次のとおりである。
+
+- 根拠対象: `tomo-chan/agent-harness`のマージ済み履歴 `d1c89e098ab16c6bbf7c97250a162fadb8b0c7e6` までと、PR #5の `b655027e7df02ebe8620be4a10de3008b1e54515` まで
+- 取得時点: 2026年9月23日（日本標準時）
+- 有効条件: 下表の固定コミットに含まれる変更と、その時点で対応を確認した現行文書・テストについてのみ有効。後続コミット、PR本文・コメントの編集、外部製品・APIの変更には再評価が必要
+
 ---
 
 ## 2. 根拠と読み方
@@ -16,19 +22,19 @@
 
 | 時期 | 根拠 | 観測した変化 |
 |---|---|---|
-| 9月7日 | [PR #13](https://github.com/tomo-chan/agent-harness/pull/13) | 進化対象をRAEM適用体系だけでなく、対象領域とそれを支えるモデル・仕組みへ一般化した |
-| 9月11日〜20日 | [PR #16](https://github.com/tomo-chan/agent-harness/pull/16) | 実装非依存のツール仕様と用語集を、具体実装と保証スライスから分離した |
-| 9月11日〜20日 | [PR #15](https://github.com/tomo-chan/agent-harness/pull/15) | S1 Trusted Runtime / Policy EnforcementをGoで具体化した |
-| 9月11日〜20日 | [PR #20](https://github.com/tomo-chan/agent-harness/pull/20) | S2 Repository Authority / Postureをfresh authorityと実対象へ結合した |
-| 9月12日〜20日 | [PR #22](https://github.com/tomo-chan/agent-harness/pull/22) | S3 Publication Guardを限定した正規形と実際の公開対象へ結合した |
-| 9月13日〜20日 | [PR #24](https://github.com/tomo-chan/agent-harness/pull/24) | S4 Control-plane Change Guardを実際の公開差分へ結合した |
-| 9月14日〜20日 | [PR #26](https://github.com/tomo-chan/agent-harness/pull/26) | S5 Completion Assuranceで決定的完了条件と意味上の完了を分離した |
-| 9月14日〜20日 | [PR #28](https://github.com/tomo-chan/agent-harness/pull/28) | S6 Vendor Integration / Deploymentで共通判断を弱化しない変換と配備境界を具体化した |
-| 9月14日〜20日 | [PR #30](https://github.com/tomo-chan/agent-harness/pull/30) | 本番実装をGoへ一本化し、旧実装ではなく一般化済みの発見だけを適合系列へ残した |
-| 9月20日 | [PR #31](https://github.com/tomo-chan/agent-harness/pull/31)、[PR #33](https://github.com/tomo-chan/agent-harness/pull/33) | 配布候補の検証、リリースPRのCI起動、workflow実行文脈の欠落を修正した |
-| 9月7日〜22日 | [PR #5](https://github.com/tomo-chan/agent-harness/pull/5) | モデル指摘の停止判定、根拠の対象・取得時点・有効条件、レビュー・進化サイクルの外部予算を明示した |
+| 9月7日 | [PR #13](https://github.com/tomo-chan/agent-harness/pull/13) / [`40d5af9`](https://github.com/tomo-chan/agent-harness/commit/40d5af9171a870c1af5ee646aaa1576a2c0d7f5a) | 進化対象をRAEM適用体系だけでなく、対象領域とそれを支えるモデル・仕組みへ一般化した |
+| 9月11日〜20日 | [PR #16](https://github.com/tomo-chan/agent-harness/pull/16) / [`dfc9a3a`](https://github.com/tomo-chan/agent-harness/commit/dfc9a3adb8fb14e06ec79e568d9ce97e681d554b) | 実装非依存のツール仕様と用語集を、具体実装と保証スライスから分離した |
+| 9月11日〜20日 | [PR #15](https://github.com/tomo-chan/agent-harness/pull/15) / [`f75bb2b`](https://github.com/tomo-chan/agent-harness/commit/f75bb2bf2134c2afd216fa246d5fc9c0aa6ba873) | S1 Trusted Runtime / Policy EnforcementをGoで具体化した |
+| 9月11日〜20日 | [PR #20](https://github.com/tomo-chan/agent-harness/pull/20) / [`ab8d5b6`](https://github.com/tomo-chan/agent-harness/commit/ab8d5b67e93e668ddc1a688ff436669fdf278ee9) | S2 Repository Authority / Postureをfresh authorityと実対象へ結合した |
+| 9月12日〜20日 | [PR #22](https://github.com/tomo-chan/agent-harness/pull/22) / [`ceebfd9`](https://github.com/tomo-chan/agent-harness/commit/ceebfd92a063b1f3d6ea5f5661582b4d8dd2c6f8) | S3 Publication Guardを限定した正規形と実際の公開対象へ結合した |
+| 9月13日〜20日 | [PR #24](https://github.com/tomo-chan/agent-harness/pull/24) / [`e9d673d`](https://github.com/tomo-chan/agent-harness/commit/e9d673d2b9e9551e9a6bc06de1fe4122897c8af4) | S4 Control-plane Change Guardを実際の公開差分へ結合した |
+| 9月14日〜20日 | [PR #26](https://github.com/tomo-chan/agent-harness/pull/26) / [`69b67ca`](https://github.com/tomo-chan/agent-harness/commit/69b67ca02f5446dd1cbd8ef8dd3a0bfb0a65c291) | S5 Completion Assuranceで決定的完了条件と意味上の完了を分離した |
+| 9月14日〜20日 | [PR #28](https://github.com/tomo-chan/agent-harness/pull/28) / [`1991e08`](https://github.com/tomo-chan/agent-harness/commit/1991e08ab1a576aa728dc300d01391575ab06d45) | S6 Vendor Integration / Deploymentで共通判断を弱化しない変換と配備境界を具体化した |
+| 9月14日〜20日 | [PR #30](https://github.com/tomo-chan/agent-harness/pull/30) / [`a646b89`](https://github.com/tomo-chan/agent-harness/commit/a646b89337de5292eb412f378ca4a8e57049c7ad) | 本番実装をGoへ一本化し、旧実装ではなく一般化済みの発見だけを適合系列へ残した |
+| 9月20日 | [PR #31](https://github.com/tomo-chan/agent-harness/pull/31) / [`7cb5511`](https://github.com/tomo-chan/agent-harness/commit/7cb55115a3ae4c068a7d0db9adf07c1707965a65)、[PR #33](https://github.com/tomo-chan/agent-harness/pull/33) / [`d1c89e0`](https://github.com/tomo-chan/agent-harness/commit/d1c89e098ab16c6bbf7c97250a162fadb8b0c7e6) | 配布候補の検証、リリースPRのCI起動、workflow実行文脈の欠落を修正した |
+| 9月7日〜22日 | [PR #5](https://github.com/tomo-chan/agent-harness/pull/5) / [`b655027`](https://github.com/tomo-chan/agent-harness/commit/b655027e7df02ebe8620be4a10de3008b1e54515) | モデル指摘の停止判定、根拠の対象・取得時点・有効条件、レビュー・進化サイクルの外部予算を明示した |
 
-PR本文やコミットは歴史的な観測であり、それだけを現在の保証の正本にはしない。現在の契約、実装、テスト、保証スライス文書と対応する内容だけを、現行知識として扱う。
+固定コミットを履歴上の根拠対象とし、PRへのリンクは議論経緯を読むための案内として扱う。編集可能なPR本文やコメントだけを現在の保証の正本にはしない。現在の契約、実装、テスト、保証スライス文書と対応する内容だけを、現行知識として扱う。
 
 ---
 
@@ -52,7 +58,9 @@ S1〜S6は順に具体化されたが、各スライスは単一パッケージ�
 
 ### 3.3 部分適合と対象外は収束の失敗ではない
 
-各スライスはAgent Harness全体の完全性を主張せず、対象内の保証規則、決定的テスト、取得不能時の意味論、外部責任、対象外を明示して初回収束点を置いた。
+S1〜S6の各変更はAgent Harness全体の完全性を主張せず、対象内の保証規則、決定的テスト、取得不能時の意味論、外部責任、対象外を記録し、歴史上は初回収束点を宣言した。
+
+ただし、後続のPR #5レビューで、独立した信頼済みtask-intent権威の欠落がS5の現在保証を破るモデル指摘と分類された。このため、S5の初回収束宣言は現在有効な収束結果として扱わない。S6のvendor mappingに関する局所的な評価は残るが、S5の完了保証へ依存する部分はtask-intent解決を前提とする条件付き評価である。
 
 対象外を明記することは問題の先送りではない。現在の中心主張と矛盾せず、追跡可能なEvolution入力として残せる場合に限り、保証範囲を固定して収束できる。
 
@@ -180,18 +188,20 @@ macOSの`/var`と`/private/var`、GitHub Actionsの`GITHUB_TOKEN`による再帰
 
 ---
 
-## 9. 実践プラクティスの評価結果
+## 9. 実践プラクティスの回顧的評価
 
-### 9.1 確認できたこと
+### 9.1 履歴から確認できた成果
 
-- 収束型レビューは、具体的な指摘を適合問題、モデル問題、外部責任へ分けるために利用できた。
-- 保証スライスは、S1〜S6について主張から具体化、テスト、Evidence、対象外までの保証ストーリーを分離するために利用できた。
+- 履歴上の具体的な指摘を、適合問題、モデル問題、外部責任へ回顧的に分類できた。
+- S1〜S6について、主張から具体化、テスト、Evidence、対象外までの保証ストーリーを回顧的に分離できた。
 - 共通実装を複数スライスから利用しながら、下流が上流判断を弱化しない依存関係を記述できた。
-- 各スライスに初回収束条件と非保証範囲を置くことで、Agent Harness全体の完全性を過剰主張せず終了理由を説明できた。
 - 非決定的レビューの発見を保証規則、回帰テスト、CI、配備条件へ移送できた。
 
 ### 9.2 部分的にしか確認できないこと
 
+- S4〜S6には独立した保証スライス文書があり、S1〜S3には実装ノートとPR記録があるが、すべてが本プラクティスの共通形式で記録されているわけではない。
+- 識別可能なレビュー基準、観点ごとの完了状態、重大度とモデル影響の分類をS1〜S6で一貫して記録した成果物はない。このため、収束型レビューの全手順を当時実施したとは確認できず、本記録は回顧的・部分的な適用に留まる。
+- S1〜S6は歴史上それぞれ初回収束を宣言したが、S5の宣言は後続のtask-intent指摘によって無効化された。S6のS5依存部分も条件付きである。
 - 同じ根を持つ指摘の再発見頻度が低下したかは、比較可能な長期測定がない。
 - スタックしたPRは依存関係を明示できたが、変更管理コストとの最適な釣り合いは確立していない。
 - 保証スライス境界が長期的に安定するかは、今後のEvolutionで再評価が必要である。
@@ -221,7 +231,7 @@ macOSの`/var`と`/private/var`、GitHub Actionsの`GITHUB_TOKEN`による再帰
 
 ## 11. 要約
 
-9月7日以降の履歴は、収束型レビューと保証スライスがAgent Harnessという一つの対象領域では実用になることを示した。同時に、次の境界も明確になった。
+9月7日以降の履歴は、収束型レビューと保証スライスの概念を使ってAgent Harnessの発見と保証構造を回顧的に整理できることを示した。一方、定義した全レビュープロセスを当時一貫して実施したことや、全スライスが現在も収束していることは示していない。
 
 > 実装、テスト、Evidenceが増えること自体を成熟とみなさない。発見を主張、権威、保証規則、責任境界へ一般化し、決定的な仕組みへ移し、なお保証できない範囲を明示できたときに知識として蓄積される。
 

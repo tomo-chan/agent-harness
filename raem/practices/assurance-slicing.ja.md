@@ -246,16 +246,17 @@ AIエージェントは、変更を機械的に小さく分割するのではな
 
 この保証スライスの考え方は、Agent Harness PRの収束レビューから抽出された最初の仮説である。
 
-2026年9月7日以降、S1〜S6の具体化とレビューへ適用した結果は[Agent Harness適用履歴から得た知識](agent-harness-application-history.ja.md)に記録する。
+2026年9月7日以降のS1〜S6の具体化とレビューを、このプラクティスで回顧的に評価した結果は[Agent Harness適用履歴から得た知識](agent-harness-application-history.ja.md)に記録する。
 
-この適用では次を確認できた。
+この回顧的評価では次を確認できた。
 
-- Agent Harnessの変更を、Trusted Runtime、Repository Authority、Publication、Control-plane Change、Completion、Vendor / Deploymentの保証ストーリーへ分解できた。
-- 各スライスで主張、権威、具体化、テスト、Evidence、対象外を追跡できた。
+- Agent Harnessの変更を、Trusted Runtime、Repository Authority、Publication、Control-plane Change、Completion、Vendor / Deploymentの保証ストーリーへ回顧的に分解できた。
+- S4〜S6の保証スライス文書と、S1〜S3の実装ノート・PR記録から、主張、具体化、テスト、Evidence、対象外の対応を部分的に追跡できた。
 - 共通実装を複数スライスから再利用しつつ、下流が上流の非許可を拡張しない依存関係を記述できた。
-- スライスごとに初回収束点を置き、Agent Harness全体の完全性と混同せず終了理由を説明できた。
 
-ただし、Agent Harness以外でも同じ境界判断が有効か、スタックしたPRの変更管理コストが適切か、境界が長期的に安定するかは確認できていない。追加適用の結果によって、保証スライスの境界条件そのものを進化させる。
+ただし、S1〜S6が同じ保証スライス形式とレビュー基準で作成されたわけではないため、これは完全な適用根拠ではない。また、S5の歴史的な初回収束宣言は後続のtask-intent指摘によって無効化され、S6のS5依存部分も条件付きである。
+
+Agent Harness以外でも同じ境界判断が有効か、スタックしたPRの変更管理コストが適切か、境界が長期的に安定するかも確認できていない。追加適用の結果によって、保証スライスの境界条件そのものを進化させる。
 
 ---
 
