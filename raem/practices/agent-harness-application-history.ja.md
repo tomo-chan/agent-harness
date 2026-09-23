@@ -6,11 +6,11 @@
 
 これはRAEM本体の規範でも、Agent Harness全体の最終適合宣言でもない。履歴上の観測、そこから一般化した知識、決定的な仕組みへ固定した内容、未立証の範囲を分け、収束型レビュー、保証スライス、モデル指摘の停止判定を評価するための適用記録である。
 
-時刻の境界は日本標準時とし、2026年9月7日にマージされたPR #13から、2026年9月22日のPR #5フォローアップまでを対象とする。
+時刻の境界は日本標準時とし、2026年9月7日にマージされたPR #13から、2026年9月23日のPR #5フォローアップまでを対象とする。
 
 この記録の根拠対象、取得時点、有効条件は次のとおりである。
 
-- 根拠対象: `tomo-chan/agent-harness`のマージ済み履歴 `d1c89e098ab16c6bbf7c97250a162fadb8b0c7e6` までと、PR #5の `b655027e7df02ebe8620be4a10de3008b1e54515` まで
+- 根拠対象: `tomo-chan/agent-harness`のマージ済み履歴 `d1c89e098ab16c6bbf7c97250a162fadb8b0c7e6` までと、PR #5の `29943316017139da30a4964a8d50e1381d27bc2b` まで
 - 取得時点: 2026年9月23日（日本標準時）
 - 有効条件: 下表の固定コミットに含まれる変更と、その時点で対応を確認した現行文書・テストについてのみ有効。後続コミット、PR本文・コメントの編集、外部製品・APIの変更には再評価が必要
 
@@ -32,7 +32,7 @@
 | 9月14日〜20日 | [PR #28](https://github.com/tomo-chan/agent-harness/pull/28) / [`1991e08`](https://github.com/tomo-chan/agent-harness/commit/1991e08ab1a576aa728dc300d01391575ab06d45) | S6 Vendor Integration / Deploymentで共通判断を弱化しない変換と配備境界を具体化した |
 | 9月14日〜20日 | [PR #30](https://github.com/tomo-chan/agent-harness/pull/30) / [`a646b89`](https://github.com/tomo-chan/agent-harness/commit/a646b89337de5292eb412f378ca4a8e57049c7ad) | 本番実装をGoへ一本化し、旧実装ではなく一般化済みの発見だけを適合系列へ残した |
 | 9月20日 | [PR #31](https://github.com/tomo-chan/agent-harness/pull/31) / [`7cb5511`](https://github.com/tomo-chan/agent-harness/commit/7cb55115a3ae4c068a7d0db9adf07c1707965a65)、[PR #33](https://github.com/tomo-chan/agent-harness/pull/33) / [`d1c89e0`](https://github.com/tomo-chan/agent-harness/commit/d1c89e098ab16c6bbf7c97250a162fadb8b0c7e6) | 配布候補の検証、リリースPRのCI起動、workflow実行文脈の欠落を修正した |
-| 9月7日〜22日 | [PR #5](https://github.com/tomo-chan/agent-harness/pull/5) / [`b655027`](https://github.com/tomo-chan/agent-harness/commit/b655027e7df02ebe8620be4a10de3008b1e54515) | モデル指摘の停止判定、根拠の対象・取得時点・有効条件、レビュー・進化サイクルの外部予算を明示した |
+| 9月7日〜23日 | [PR #5](https://github.com/tomo-chan/agent-harness/pull/5) / [`2994331`](https://github.com/tomo-chan/agent-harness/commit/29943316017139da30a4964a8d50e1381d27bc2b) | モデル指摘の停止判定、根拠の対象・取得時点・有効条件、レビュー・進化サイクルの外部予算、適用評価の限界を明示した |
 
 固定コミットを履歴上の根拠対象とし、PRへのリンクは議論経緯を読むための案内として扱う。編集可能なPR本文やコメントだけを現在の保証の正本にはしない。現在の契約、実装、テスト、保証スライス文書と対応する内容だけを、現行知識として扱う。
 
@@ -116,7 +116,21 @@ S2はmutation target、S3はrefspec・push URL・GitHub branch head、S4はautho
 
 > ツール名や利用者の宣言ではなく、可能な限り実際の対象、差分、宛先、権威ある外部状態に対して保証する。
 
-### 5.3 発見は否定ケースへ移す
+### 5.3 表現形式も保証境界に含める
+
+PR #24では、保護対象から制御を実装するGoコードが漏れていたほか、rename検出時に変更元パスが見えなくなること、Gitの表示用パス引用によって保護prefixを判定できないことが見つかった。修正では、エントリーポイントと`internal/`を自己保護対象へ加え、rename検出を無効にした上で、NUL区切りのパスを表示用エスケープなしに処理した。
+
+> 機械判定の保証契約は、値の意味だけでなく、保護対象集合、複数フィールドの対応、区切り、引用・エスケープ、rename等の関係を保持する直列化方式まで含める。表示用の曖昧な表現をそのまま認可判断へ使わない。
+
+### 5.4 Evidenceは診断可能かつ有界に返す
+
+PR #28では、共通のcompletion結果をベンダー固有のStop応答へ変換する際にEvidenceが失われ、エージェントが決定的ゲートの失敗理由を診断できなかった。修正では構造化Evidenceを応答へ残し、同時にフィードバック全体を4,096 runeへ制限した。
+
+> アダプターはallow / deny / block等の判断を弱めないだけでなく、修復と意味レビューに必要な診断Evidenceを保持する。一方、無制限の標準出力やエラーをモデルコンテキストへ流さず、切詰めを明示した決定的な上限を設ける。
+
+4,096 runeはAgent Harnessで選んだ具体値であり、一般要件ではない。一般化できるのは、診断に必要な情報の保持と、出力上限・切詰め意味論を同じ契約で定めることである。
+
+### 5.5 発見は否定ケースへ移す
 
 compound command、unknown tool、`gh-merge-base`、implicit tag publication、platform path差、CI再帰起動抑止等は、レビュー時の説明だけで閉じず、回帰テストまたはworkflow検査へ移された。
 
@@ -183,6 +197,8 @@ macOSの`/var`と`/private/var`、GitHub Actionsの`GITHUB_TOKEN`による再帰
 | 署名、失効、installed artifact verification | 外部保証責任 | 配備時の追加適合条件として記録 |
 | release PRでCIが自動起動しない | 実装エラー | head SHAを照合した明示dispatchを回帰防止として追加 |
 | レビュー・進化が無期限に反復し得る | プラクティスのモデル不足 | 外部予算と枯渇状態を追加 |
+| 保護対象漏れ、rename、表示用パス引用で差分判定を回避できる | 具体化 / 実装エラー | 自己保護対象を明示し、関係を曖昧化しないNUL区切り表現と否定テストへ固定 |
+| ベンダー変換でcompletion Evidenceが失われる | 実装エラー | 診断Evidenceを保持し、決定的な出力上限と切詰めを追加 |
 
 ここから、モデル影響とサイクル阻害を分ける必要性を確認できた。モデル指摘であっても現在の保証を無効にせず、対象外として正確に説明できるものは次サイクルへ送れる。一方、現在の保証を偽って成立させる欠落は、その重大度ラベルにかかわらず現在サイクルで扱う。
 
